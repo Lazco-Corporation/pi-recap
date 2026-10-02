@@ -1,0 +1,71 @@
+# AGENTS.md
+
+`@lazco/pi-recap` is a pi extension with two commands, `/recap` and `/summary`.
+Each command sends the conversation to a separate model call and shows the result in a popup.
+The result never goes into the session.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `bun run check` | Type-check. |
+| `bun run test` | Run the unit tests under node. |
+| `npm run release -- <bump>` | Cut a release. See **Release** below. |
+
+The package ships TypeScript source, so there is no build step.
+
+## Layout
+
+All source sits under `src/`.
+
+| File | What it holds |
+|---|---|
+| `index.ts` | the two commands and the flow from the conversation to the popup |
+| `config.ts` | reads and checks `recap.json` in the pi agent directory |
+| `conversation.ts` | turns the session branch into the transcript, inside the size limit |
+| `generate.ts` | the two default prompts, the model choice, and the model call |
+| `popup.ts` | the overlay with the spinner, the text, the scroll, and the copy key |
+
+`scripts/release.sh` cuts a release.
+`.github/workflows/release-npm.yml` publishes one.
+
+## Dependencies
+
+Read `docs/packages.md` in the installed `@earendil-works/pi-coding-agent` before you add a dependency.
+
+- A package that pi bundles goes in `peerDependencies` with a `"*"` range. Never bundle one.
+- Any other runtime dependency goes in `dependencies`.
+
+## Release
+
+`npm version` owns the version number.
+Never edit the `version` field in `package.json` by hand.
+
+One command cuts a release from `main`:
+
+```bash
+npm run release -- <bump>
+```
+
+`<bump>` is `patch`, `minor`, `major`, `prepatch`, `preminor`, `premajor`, `prerelease`, or an exact version such as `<MAJOR>.<MINOR>.<PATCH>`.
+Add `--dry-run` to run every check and print the plan without a change.
+
+The script refuses to start unless the branch is `main`, the working tree is clean, `main` agrees with its upstream, and `npm run check` and `npm run test` pass.
+It then runs `npm version <bump>`, refuses a version that is already on npm, and pushes `main` and the `v<version>` tag.
+If a step after the bump fails, it resets to the starting commit and deletes only the tag that this run created.
+
+A push of a `v*` tag starts `release-npm.yml`.
+The workflow installs, type-checks, tests, reads `NPM_TOKEN` from Infisical, publishes with provenance, and creates the GitHub release.
+A version with a `-` goes to the `next` dist-tag. A normal version goes to `latest`.
+
+The workflow needs this one-time setup:
+
+1. The Infisical project `lazco-pi-recap`, env `prod`, path `/ci`, with `NPM_TOKEN`.
+2. The repo variable `INFISICAL_CI_IDENTITY_ID`.
+3. The Infisical machine identity, bound to this repo.
+
+### Pick the bump
+
+- `patch` for a fix only.
+- `minor` for new user-facing behavior, such as a new key or command.
+- `major` for a change that breaks a user setup.

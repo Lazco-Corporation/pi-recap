@@ -1,0 +1,129 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { loadSettings, type Settings } from "./config.ts";
+import { collectTurns, renderConversation } from "./conversation.ts";
+import { chooseModel, generateMarkdown, type ModelChoice, RECAP_PROMPT, renderPrompt, SUMMARY_PROMPT } from "./generate.ts";
+import { ResultPopup } from "./popup.ts";
+
+/**
+ * `/recap` and `/summary`: the conversation, condensed by a separate model call and shown in a popup.
+ *
+ * `/recap` is three lines for a user who comes back after a break.
+ * `/summary` is a full record that someone else could continue the work from.
+ * Neither result enters the session, so the main model sees no extra tokens.
+ */
+
+interface DigestCommand {
+  name: string;
+  description: string;
+  /** Popup title. */
+  title: string;
+  prompt: (settings: Settings) => string;
+}
+
+const DIGEST_COMMANDS: readonly DigestCommand[] = [
+  {
+    name: "recap",
+    description: "Show where this conversation stands, in three lines",
+    title: "Recap",
+    prompt: (settings) => settings.recapPrompt ?? RECAP_PROMPT,
+  },
+  {
+    name: "summary",
+    description: "Show a full summary of this conversation",
+    title: "Summary",
+    prompt: (settings) => settings.summaryPrompt ?? SUMMARY_PROMPT,
+  },
+];
+
+export default function (pi: ExtensionAPI): void {
+  for (const command of DIGEST_COMMANDS) {
+    pi.registerCommand(command.name, {
+      description: command.description,
+      handler: async (_args, ctx) => {
+        await runDigestCommand(command, ctx);
+      },
+    });
+  }
+}
+
+async function runDigestCommand(command: DigestCommand, ctx: ExtensionCommandContext): Promise<void> {
+  if (ctx.mode !== "tui") {
+    if (ctx.hasUI) ctx.ui.notify(`/${command.name} needs the interactive terminal UI.`, "warning");
+    return;
+  }
+
+  let settings: Settings;
+  try {
+    settings = loadSettings(getAgentDir());
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+    return;
+  }
+
+  const turns = collectTurns(ctx.sessionManager.getBranch());
+  if (turns.length === 0) {
+    ctx.ui.notify("The conversation is empty.", "info");
+    return;
+  }
+
+  const choice = chooseModel(settings, ctx);
+  if (!choice) {
+    ctx.ui.notify("No model is available.", "error");
+    return;
+  }
+
+  const prompt = renderPrompt(command.prompt(settings), {
+    conversation: renderConversation(turns, settings.maxInputChars),
+    status: ctx.isIdle()
+      ? "The agent is idle and waits for the user."
+      : "The agent is working on the newest user message right now. Its reply is not in the conversation yet, so say what it is working on.",
+    sessionName: ctx.sessionManager.getSessionName() ?? "(none)",
+    cwd: ctx.cwd,
+  });
+
+  await showResultPopup(ctx, command.title, settings, choice, prompt, turns.length);
+}
+
+async function showResultPopup(
+  ctx: ExtensionCommandContext,
+  title: string,
+  settings: Settings,
+  choice: ModelChoice,
+  prompt: string,
+  messageCount: number,
+): Promise<void> {
+  const controller = new AbortController();
+
+  await ctx.ui.custom<void>(
+    (tui, theme, keybindings, done) => {
+      const popup = new ResultPopup({
+        tui,
+        theme,
+        keybindings,
+        title,
+        subtitle: choice.model.id,
+        loadingMessage: `Reading ${messageCount} messages…`,
+        onClose: () => {
+          controller.abort();
+          done();
+        },
+      });
+
+      const fillPopup = async () => {
+        try {
+          const result = await generateMarkdown(choice.model, settings, prompt, ctx, controller.signal);
+          if (result.kind === "text") popup.showText(result.markdown, choice.warning);
+          else if (result.kind === "error") popup.showError(result.message);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          popup.showError(error instanceof Error ? error.message : String(error));
+        }
+      };
+      void fillPopup();
+
+      return popup;
+    },
+    { overlay: true, overlayOptions: { width: "80%", minWidth: 40, anchor: "center" } },
+  );
+}
