@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { loadSettings, type Settings } from "./config.ts";
 import { collectTurns, renderConversation } from "./conversation.ts";
-import { chooseModel, generateMarkdown, type ModelChoice, RECAP_PROMPT, renderPrompt, SUMMARY_PROMPT } from "./generate.ts";
+import { chooseModel, composePrompt, generateMarkdown, type ModelChoice, renderPrompt } from "./generate.ts";
 import { ResultPopup } from "./popup.ts";
 
 /**
@@ -15,24 +15,24 @@ import { ResultPopup } from "./popup.ts";
 
 interface DigestCommand {
   name: string;
+  kind: "recap" | "summary";
   description: string;
   /** Popup title. */
   title: string;
-  prompt: (settings: Settings) => string;
 }
 
 const DIGEST_COMMANDS: readonly DigestCommand[] = [
   {
     name: "recap",
+    kind: "recap",
     description: "Show where this conversation stands, in three lines",
     title: "Recap",
-    prompt: (settings) => settings.recapPrompt ?? RECAP_PROMPT,
   },
   {
     name: "summary",
+    kind: "summary",
     description: "Show a full summary of this conversation",
     title: "Summary",
-    prompt: (settings) => settings.summaryPrompt ?? SUMMARY_PROMPT,
   },
 ];
 
@@ -40,14 +40,18 @@ export default function (pi: ExtensionAPI): void {
   for (const command of DIGEST_COMMANDS) {
     pi.registerCommand(command.name, {
       description: command.description,
-      handler: async (_args, ctx) => {
-        await runDigestCommand(command, ctx);
+      handler: async (args, ctx) => {
+        await runDigestCommand(command, args, ctx);
       },
     });
   }
 }
 
-async function runDigestCommand(command: DigestCommand, ctx: ExtensionCommandContext): Promise<void> {
+async function runDigestCommand(
+  command: DigestCommand,
+  args: string,
+  ctx: ExtensionCommandContext,
+): Promise<void> {
   if (ctx.mode !== "tui") {
     if (ctx.hasUI) ctx.ui.notify(`/${command.name} needs the interactive terminal UI.`, "warning");
     return;
@@ -73,13 +77,14 @@ async function runDigestCommand(command: DigestCommand, ctx: ExtensionCommandCon
     return;
   }
 
-  const prompt = renderPrompt(command.prompt(settings), {
+  const prompt = renderPrompt(composePrompt(command.kind, settings, args), {
     conversation: renderConversation(turns, settings.maxInputChars),
     status: ctx.isIdle()
       ? "The agent is idle and waits for the user."
       : "The agent is working on the newest user message right now. Its reply is not in the conversation yet, so say what it is working on.",
     sessionName: ctx.sessionManager.getSessionName() ?? "(none)",
     cwd: ctx.cwd,
+    language: settings.language ?? "",
   });
 
   await showResultPopup(ctx, command.title, settings, choice, prompt, turns.length);

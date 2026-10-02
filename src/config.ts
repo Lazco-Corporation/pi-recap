@@ -21,6 +21,23 @@ export interface Settings {
   /** Cap on the conversation text handed to the model. */
   maxInputChars: number;
   /**
+   * Output language, for example "Traditional Chinese", "zh-TW", or "English".
+   * If null, the model uses the language of the newest user message.
+   */
+  language: string | null;
+  /**
+   * Additional prompt text appended to both `/recap` and `/summary`.
+   */
+  appendPrompt: string | null;
+  /**
+   * Additional prompt text appended only to `/recap`.
+   */
+  recapAppendPrompt: string | null;
+  /**
+   * Additional prompt text appended only to `/summary`.
+   */
+  summaryAppendPrompt: string | null;
+  /**
    * Custom prompts with `{{conversation}}`, `{{status}}`, `{{sessionName}}`, and `{{cwd}}`, or null for the default.
    */
   recapPrompt: string | null;
@@ -28,7 +45,17 @@ export interface Settings {
 }
 
 export function defaultSettings(): Settings {
-  return { model: null, thinking: "low", maxInputChars: 120_000, recapPrompt: null, summaryPrompt: null };
+  return {
+    model: null,
+    thinking: "low",
+    maxInputChars: 120_000,
+    language: null,
+    appendPrompt: null,
+    recapAppendPrompt: null,
+    summaryAppendPrompt: null,
+    recapPrompt: null,
+    summaryPrompt: null,
+  };
 }
 
 export class SettingsError extends Error {}
@@ -65,7 +92,8 @@ function maxInputCharsField(value: unknown, fallback: number): number {
 function promptField(value: unknown, field: string): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") throw new SettingsError(`"${field}" must be text or null`);
-  return value.trim().length > 0 ? value : null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 export function parseSettings(input: unknown): Settings {
@@ -75,6 +103,10 @@ export function parseSettings(input: unknown): Settings {
     model: modelField(input.model),
     thinking: thinkingField(input.thinking, fallback.thinking),
     maxInputChars: maxInputCharsField(input.maxInputChars, fallback.maxInputChars),
+    language: promptField(input.language, "language"),
+    appendPrompt: promptField(input.appendPrompt, "appendPrompt"),
+    recapAppendPrompt: promptField(input.recapAppendPrompt, "recapAppendPrompt"),
+    summaryAppendPrompt: promptField(input.summaryAppendPrompt, "summaryAppendPrompt"),
     recapPrompt: promptField(input.recapPrompt, "recapPrompt"),
     summaryPrompt: promptField(input.summaryPrompt, "summaryPrompt"),
   };

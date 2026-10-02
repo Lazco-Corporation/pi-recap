@@ -75,6 +75,10 @@ Each command run reads it again, so an edit applies without `/reload`.
   "model": null,
   "thinking": "low",
   "maxInputChars": 120000,
+  "language": null,
+  "appendPrompt": null,
+  "recapAppendPrompt": null,
+  "summaryAppendPrompt": null,
   "recapPrompt": null,
   "summaryPrompt": null
 }
@@ -85,8 +89,14 @@ Each command run reads it again, so an edit applies without `/reload`.
 | `model` | `"<provider>/<model-id>"`, or `null` for the session model | `null` |
 | `thinking` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` | `low` |
 | `maxInputChars` | The max size of the conversation text, from 1000 to 2000000 | `120000` |
+| `language` | Output language, for example `"Traditional Chinese"` or `"English"`, or `null` to match the user | `null` |
+| `appendPrompt` | Extra instructions appended to both `/recap` and `/summary`, or `null` | `null` |
+| `recapAppendPrompt` | Extra instructions appended only to `/recap`, or `null` | `null` |
+| `summaryAppendPrompt` | Extra instructions appended only to `/summary`, or `null` | `null` |
 | `recapPrompt` | A custom prompt for `/recap`, or `null` for the built-in prompt | `null` |
 | `summaryPrompt` | A custom prompt for `/summary`, or `null` for the built-in prompt | `null` |
+
+You can also pass extra instructions when you run the command, for example `/recap focus on git changes`.
 
 If pi cannot find the `model`, or the model has no API key, the command uses the session model and shows a warning.
 If the file has bad JSON or a bad field, the command shows an error and stops.

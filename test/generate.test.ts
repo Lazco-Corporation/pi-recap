@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { RECAP_PROMPT, renderPrompt, SUMMARY_PROMPT } from "../src/generate.ts";
+import { defaultSettings } from "../src/config.ts";
+import { buildDefaultPrompt, composePrompt, RECAP_PROMPT, renderPrompt, SUMMARY_PROMPT } from "../src/generate.ts";
 
-const variables = { conversation: "User: hi", status: "idle", sessionName: "s", cwd: "/w" };
+const variables = { conversation: "User: hi", status: "idle", sessionName: "s", cwd: "/w", language: "zh-TW" };
 
 test("known placeholders are filled and unknown ones are kept", () => {
   assert.equal(renderPrompt("{{status}} {{cwd}} {{nope}} {{conversation}}", variables), "idle /w {{nope}} User: hi");
@@ -24,3 +25,27 @@ for (const [name, template] of [
     assert.doesNotMatch(renderPrompt(template, variables), /\{\{\w+\}\}/);
   });
 }
+
+test("buildDefaultPrompt sets the language rule when language is provided", () => {
+  const recap = buildDefaultPrompt("recap", "Traditional Chinese");
+  assert.ok(recap.includes("Write everything in Traditional Chinese."));
+  assert.ok(!recap.includes("language of the User messages"));
+
+  const summary = buildDefaultPrompt("summary", "Traditional Chinese");
+  assert.ok(summary.includes("Write everything in Traditional Chinese."));
+});
+
+test("composePrompt appends appendPrompt, command-specific append, and args", () => {
+  const settings = {
+    ...defaultSettings(),
+    language: "Japanese",
+    appendPrompt: "Note the git commit hash.",
+    recapAppendPrompt: "Two lines maximum.",
+  };
+  const prompt = composePrompt("recap", settings, "Focus on files.");
+  assert.ok(prompt.includes("Write everything in Japanese."));
+  assert.ok(prompt.includes("- Note the git commit hash."));
+  assert.ok(prompt.includes("- Two lines maximum."));
+  assert.ok(prompt.includes("- Focus on files."));
+});
+

@@ -20,11 +20,25 @@ test("an empty object gives the defaults", () => {
 });
 
 test("valid fields are kept", () => {
-  const input = { model: " a/b/c ", thinking: "high", maxInputChars: 5000.7, recapPrompt: "r", summaryPrompt: "s" };
+  const input = {
+    model: " a/b/c ",
+    thinking: "high",
+    maxInputChars: 5000.7,
+    language: " Traditional Chinese ",
+    appendPrompt: " Mention PR # ",
+    recapAppendPrompt: " Only 2 lines ",
+    summaryAppendPrompt: " Include files ",
+    recapPrompt: "r",
+    summaryPrompt: "s",
+  };
   assert.deepEqual(parseSettings(input), {
     model: "a/b/c",
     thinking: "high",
     maxInputChars: 5000,
+    language: "Traditional Chinese",
+    appendPrompt: "Mention PR #",
+    recapAppendPrompt: "Only 2 lines",
+    summaryAppendPrompt: "Include files",
     recapPrompt: "r",
     summaryPrompt: "s",
   });
@@ -40,6 +54,10 @@ for (const input of [
   { model: 3 },
   { thinking: "huge" },
   { maxInputChars: "many" },
+  { language: 123 },
+  { appendPrompt: false },
+  { recapAppendPrompt: {} },
+  { summaryAppendPrompt: [] },
   { recapPrompt: 1 },
   { summaryPrompt: false },
   [],

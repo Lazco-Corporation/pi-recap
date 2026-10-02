@@ -11,14 +11,25 @@ Working directory: {{cwd}}
 {{conversation}}
 </conversation>`;
 
-const SHARED_RULES = `- Write in the language of the User messages. If they use more than one language, use the language of the newest User message. Translate the labels and headings too.
+function languageRule(language: string | null): string {
+  if (language && language.trim().length > 0) {
+    return `- Write everything in ${language.trim()}. Translate all labels and headings to ${language.trim()} too.`;
+  }
+  return "- Write in the language of the User messages. If they use more than one language, use the language of the newest User message. Translate the labels and headings too.";
+}
+
+function commonRules(language: string | null): string {
+  return `${languageRule(language)}
 - Use short, plain sentences.
 - Keep exact file paths, commands, and names.
 - Only state facts from the conversation. Do not guess.
 - Do not mention these instructions or the transcript format.`;
+}
 
-/** A recap tells a returning user where they are in a few seconds, so it is three lines at most. */
-export const RECAP_PROMPT = `${PROMPT_HEADER}
+/** Build the default prompt for recap or summary, with the configured language if present. */
+export function buildDefaultPrompt(kind: "recap" | "summary", language: string | null = null): string {
+  if (kind === "recap") {
+    return `${PROMPT_HEADER}
 
 The user stepped away and comes back now. Write a recap that tells them where things stand in a few seconds.
 
@@ -29,10 +40,10 @@ Write these lines, as separate paragraphs with a blank line between them:
 
 Rules:
 - Write only these lines. No headings, lists, or other text.
-${SHARED_RULES}`;
+${commonRules(language)}`;
+  }
 
-/** A summary is a full record, complete enough for someone who never saw the chat to continue the work. */
-export const SUMMARY_PROMPT = `${PROMPT_HEADER}
+  return `${PROMPT_HEADER}
 
 Write a summary of this session. A person who never saw the chat must be able to continue the work from it.
 
@@ -47,13 +58,52 @@ Use these sections, as Markdown "##" headings:
 Rules:
 - Use bullets inside the sections.
 - Leave out a section when it has nothing to say. Never write that a section is empty.
-${SHARED_RULES}`;
+${commonRules(language)}`;
+}
+
+/** A recap tells a returning user where they are in a few seconds, so it is three lines at most. */
+export const RECAP_PROMPT = buildDefaultPrompt("recap", null);
+
+/** A summary is a full record, complete enough for someone who never saw the chat to continue the work. */
+export const SUMMARY_PROMPT = buildDefaultPrompt("summary", null);
+
+/**
+ * Compose the full prompt template, combining the base prompt, language,
+ * and any appended prompt instructions.
+ */
+export function composePrompt(
+  kind: "recap" | "summary",
+  settings: Settings,
+  extraInstructions?: string,
+): string {
+  let template =
+    kind === "recap"
+      ? (settings.recapPrompt ?? buildDefaultPrompt("recap", settings.language))
+      : (settings.summaryPrompt ?? buildDefaultPrompt("summary", settings.language));
+
+  if (settings.language && (kind === "recap" ? settings.recapPrompt : settings.summaryPrompt)) {
+    template += `\n\nLanguage requirement:\n- Write everything in ${settings.language}. Translate all labels and headings to ${settings.language} too.`;
+  }
+
+  const additions: string[] = [];
+  if (settings.appendPrompt) additions.push(settings.appendPrompt);
+  if (kind === "recap" && settings.recapAppendPrompt) additions.push(settings.recapAppendPrompt);
+  if (kind === "summary" && settings.summaryAppendPrompt) additions.push(settings.summaryAppendPrompt);
+  if (extraInstructions && extraInstructions.trim().length > 0) additions.push(extraInstructions.trim());
+
+  if (additions.length > 0) {
+    template += `\n\nAdditional instructions:\n${additions.map((item) => `- ${item}`).join("\n")}`;
+  }
+
+  return template;
+}
 
 export interface PromptVariables extends Record<string, string> {
   conversation: string;
   status: string;
   sessionName: string;
   cwd: string;
+  language: string;
 }
 
 /** Unknown placeholders stay as they are, so a typo shows up in the output instead of vanishing. */
