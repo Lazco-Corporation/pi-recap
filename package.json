@@ -1,6 +1,6 @@
 {
   "name": "@lazco/pi-recap",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Pi extension: /recap and /summary show where the conversation stands, in a popup, without adding to the session",
   "type": "module",
   "license": "AGPL-3.0-or-later",
