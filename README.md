@@ -98,6 +98,19 @@ The model leaves out a section that has nothing to say.
 `Esc` during loading also stops the model call.
 The top right corner of the popup shows the name of the model that wrote the text.
 
+### RPC mode
+
+In [RPC mode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md), there is no popup.
+Send the command as a `prompt` command, for example `{"type": "prompt", "message": "/recap"}`.
+The client gets `notify` records of the type `extension_ui_request`, in this order:
+
+1. `Reading <N> messages with <model-id>…`, with `notifyType` `"info"`.
+2. The [model warning](#model-and-output), with `notifyType` `"warning"`, only if pi used the session model instead.
+3. The text as Markdown, with `notifyType` `"info"`. If the model call fails, the error, with `notifyType` `"error"`.
+
+The `prompt` response, with `disposition` `"handled"`, comes after the last record.
+The RPC `abort` command does not stop the model call.
+
 ## Settings
 
 The settings file is `~/.pi/agent/recap.json`.
@@ -142,7 +155,7 @@ If the file has bad JSON or a bad field, the command shows an error and stops.
 
 ## Limitations
 
-- **Interactive UI only.** The commands do not work in print mode or RPC mode.
+- **No print or JSON mode.** These modes have no UI, so the commands do nothing.
 - **Text only.** The model reads your messages and the text of the agent replies. It does not read tool calls, tool results, thinking, or images. A detail that is only in a tool result can be missing from the result.
 - **Skills show as commands.** A skill run shows to the model as the command that you typed, for example `/skill:<name> <args>`.
 - **No unfinished replies.** While the agent works, its unfinished reply is not in the conversation. The recap then only says what the agent works on.

@@ -11,6 +11,8 @@ import { ResultPopup } from "./popup.ts";
  * `/recap` is three lines for a user who comes back after a break.
  * `/summary` is a full record that someone else could continue the work from.
  * Neither result enters the session, so the main model sees no extra tokens.
+ *
+ * In RPC mode there is no terminal for the popup, so the result goes to the client as a notification.
  */
 
 interface DigestCommand {
@@ -52,10 +54,8 @@ async function runDigestCommand(
   args: string,
   ctx: ExtensionCommandContext,
 ): Promise<void> {
-  if (ctx.mode !== "tui") {
-    if (ctx.hasUI) ctx.ui.notify(`/${command.name} needs the interactive terminal UI.`, "warning");
-    return;
-  }
+  // Print and JSON modes have no way to show the result.
+  if (!ctx.hasUI) return;
 
   let settings: Settings;
   try {
@@ -87,7 +87,28 @@ async function runDigestCommand(
     language: settings.language ?? "",
   });
 
-  await showResultPopup(ctx, command.title, settings, choice, prompt, turns.length);
+  if (ctx.mode === "tui") await showResultPopup(ctx, command.title, settings, choice, prompt, turns.length);
+  else await notifyResult(ctx, settings, choice, prompt, turns.length);
+}
+
+async function notifyResult(
+  ctx: ExtensionCommandContext,
+  settings: Settings,
+  choice: ModelChoice,
+  prompt: string,
+  messageCount: number,
+): Promise<void> {
+  ctx.ui.notify(`Reading ${messageCount} messages with ${choice.model.id}…`, "info");
+  if (choice.warning) ctx.ui.notify(choice.warning, "warning");
+
+  try {
+    // RPC has no cancel key for a running command, so the call always runs to the end.
+    const result = await generateMarkdown(choice.model, settings, prompt, ctx, new AbortController().signal);
+    if (result.kind === "text") ctx.ui.notify(result.markdown, "info");
+    else if (result.kind === "error") ctx.ui.notify(result.message, "error");
+  } catch (error) {
+    ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+  }
 }
 
 async function showResultPopup(
