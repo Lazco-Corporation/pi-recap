@@ -11,6 +11,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
+import { addEmphasisMarkers, removeEmphasisMarkers } from "./emphasis.ts";
 
 /**
  * The overlay for `/recap` and `/summary`: a framed box that shows a spinner, then the text or an error.
@@ -81,7 +82,7 @@ export class ResultPopup implements Component {
     this.state = {
       kind: "text",
       source: markdownText,
-      markdown: new Markdown(markdownText, 0, 0, getMarkdownTheme()),
+      markdown: new Markdown(markdownText, 0, 0, getMarkdownTheme(), undefined, { transform: addEmphasisMarkers }),
       warning,
     };
     this.scrollTop = 0;
@@ -170,7 +171,7 @@ export class ResultPopup implements Component {
       case "error":
         return wrapTextWithAnsi(theme.fg("error", this.state.message), innerWidth);
       case "text": {
-        const lines = this.state.markdown.render(innerWidth);
+        const lines = this.state.markdown.render(innerWidth).map(removeEmphasisMarkers);
         if (!this.state.warning) return lines;
         return [...wrapTextWithAnsi(theme.fg("warning", this.state.warning), innerWidth), "", ...lines];
       }
