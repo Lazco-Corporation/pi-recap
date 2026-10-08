@@ -26,6 +26,7 @@ All source sits under `src/`.
 | `conversation.ts` | turns the session branch into the transcript, inside the size limit |
 | `generate.ts` | the two default prompts, the model choice, and the model call |
 | `popup.ts` | the overlay with the spinner, the text, the scroll, and the copy key |
+| `emphasis.ts` | the fix that lets the popup parse `**` bold and `*` italic next to CJK punctuation |
 
 `scripts/release.sh` cuts a release.
 `.github/workflows/release-npm.yml` publishes one.
