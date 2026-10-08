@@ -29,6 +29,7 @@ All source sits under `src/`.
 | `emphasis.ts` | the fix that lets the popup parse `**` bold and `*` italic next to CJK punctuation |
 
 `scripts/release.sh` cuts a release.
+`scripts/changelog-notes.sh` prints the `CHANGELOG.md` section for one version.
 `.github/workflows/release-npm.yml` publishes one.
 
 ## Dependencies
@@ -43,7 +44,13 @@ Read `docs/packages.md` in the installed `@earendil-works/pi-coding-agent` befor
 `npm version` owns the version number.
 Never edit the `version` field in `package.json` by hand.
 
-One command cuts a release from `main`:
+Every release has a `CHANGELOG.md` entry, and the GitHub release shows that entry.
+Cut a release from `main` in this order:
+
+1. Add a `## [<version>] - <YYYY-MM-DD>` section at the top of `CHANGELOG.md`, below the intro.
+2. Add a `[<version>]: <compare-url>` link at the bottom of `CHANGELOG.md`.
+3. Commit the entry and push `main`.
+4. Run the release command:
 
 ```bash
 npm run release -- <bump>
@@ -53,11 +60,13 @@ npm run release -- <bump>
 Add `--dry-run` to run every check and print the plan without a change.
 
 The script refuses to start unless the branch is `main`, the working tree is clean, `main` agrees with its upstream, and `npm run check` and `npm run test` pass.
-It then runs `npm version <bump>`, refuses a version that is already on npm, and pushes `main` and the `v<version>` tag.
+It then runs `npm version <bump>`, refuses a version that has no `CHANGELOG.md` section or is already on npm, and pushes `main` and the `v<version>` tag.
 If a step after the bump fails, it resets to the starting commit and deletes only the tag that this run created.
 
 A push of a `v*` tag starts `release-npm.yml`.
-The workflow installs, type-checks, tests, reads `NPM_TOKEN` from Infisical, publishes with provenance, and creates the GitHub release.
+The workflow reads the `CHANGELOG.md` section for the version, installs, type-checks, tests, reads `NPM_TOKEN` from Infisical, and publishes with provenance.
+It then creates the GitHub release with the `CHANGELOG.md` section, followed by the notes that GitHub generates.
+A missing section stops the workflow before the publish.
 A version with a `-` goes to the `next` dist-tag. A normal version goes to `latest`.
 
 The workflow needs this one-time setup:
@@ -71,3 +80,9 @@ The workflow needs this one-time setup:
 - `patch` for a fix only.
 - `minor` for new user-facing behavior, such as a new key or command.
 - `major` for a change that breaks a user setup.
+
+### Write the changelog entry
+
+- Write only changes that a user can see. Leave out CI, tests, and refactors.
+- Group the items under `### Added`, `### Changed`, `### Fixed`, `### Removed`, or `### Docs`.
+- Put each full sentence on its own line.
