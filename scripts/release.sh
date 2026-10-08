@@ -125,6 +125,13 @@ fi
 NEXT="$(node -p "require('./package.json').version")"
 TAG="v${NEXT}"
 
+# release-npm.yml uses this section as the GitHub release notes.
+if ! scripts/changelog-notes.sh "$NEXT" > /dev/null; then
+  undo
+  echo "Rolled back the local commit and tag ${TAG}. Nothing was pushed." >&2
+  exit 1
+fi
+
 # npm versions are immutable, so a duplicate would burn the whole release.
 if npm view "${PKG_NAME}@${NEXT}" version > /dev/null 2>&1; then
   echo "${PKG_NAME}@${NEXT} is already on the npm registry." >&2
