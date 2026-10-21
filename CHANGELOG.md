@@ -11,7 +11,7 @@ The newest release is at the top.
   `Esc` stops the model while it writes.
   `c` copies after the model ends.
 - While the model reads, the spinner shows how many messages the model gets, and the newest line of the model's thinking when it shows one.
-- A warning at the top of the popup tells you what the model did not get: older messages past `maxInputChars`, messages longer than 8000 characters, user messages with images, a model that stood in for the configured one, a placeholder in a custom prompt that nothing fills, or a text that stopped at the output limit.
+- A warning at the top of the popup tells you what the model did not get: older messages past `maxInputChars`, messages longer than 20000 characters, user messages with images, a model that stood in for the configured one, a placeholder in a custom prompt that nothing fills, or a text that stopped at the output limit.
   In RPC mode, each warning is a `notify` record.
 
 ### Changed
@@ -25,9 +25,13 @@ The newest release is at the top.
 - **Your turn** and **Open questions** also cover steps that the agent asked you to do or confirm, risks that it warned about, and small items such as a step to retry or a pull request that waits for review.
 - When the agent is still working, the recap treats what your newest message asked for as work in progress, not as open items.
 - Progress notes are left out of the conversation that the model reads.
-  When the agent writes several messages in one turn, only its last message before your next message goes to the model.
+  When the agent writes several messages in one turn, its messages under 300 characters before the last one are left out.
   The turn after your newest message is kept whole.
   This keeps more history inside `maxInputChars` and lowers the cost.
+- `maxInputChars` defaults to `240000`, up from `120000`.
+  Past the budget, the middle of the chat is left out, and the decisions in it are missing from the summary.
+  The new default fits every session in our tests.
+- A message keeps up to 20000 characters before it is cut in the middle, up from 8000, so a long agent report with tables stays whole.
 
 ### Fixed
 

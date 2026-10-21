@@ -28,8 +28,9 @@ export interface PreparedConversation {
 /**
  * One huge paste or code dump must not push the rest of the chat out of the budget.
  * The head usually holds the intent and the tail the conclusion, so both are kept.
+ * Agent reports with tables run to about 12,000 characters, and this cap keeps them whole.
  */
-export const MAX_TURN_CHARS = 8_000;
+export const MAX_TURN_CHARS = 20_000;
 
 const SKILL_BLOCK = /^<skill name="([^"]+)" location="[^"]*">\n[\s\S]*?\n<\/skill>(?:\n\n([\s\S]+))?$/;
 const OMITTED_MARKER = "[…older turns omitted…]";
@@ -102,15 +103,25 @@ export function collectTurns(entries: readonly SessionEntry[]): Turn[] {
 }
 
 /**
- * Drop an agent message when another agent message follows it before the next user message.
- * Those are progress notes such as "Now I check the pods", and the last agent message of the run reports the result.
+ * A progress note such as "Now I check the pods" is short: half of them are under 100 characters, 95% under 350.
+ * A report that happens to sit before another agent message, such as a notice from a subagent, is longer and must stay.
+ */
+export const MIN_KEPT_NOTE_CHARS = 300;
+
+/**
+ * Drop a short agent message when another agent message follows it before the next user message.
+ * Those are progress notes, and the last agent message of the run reports the result.
  * The run after the newest user message stays whole, because the agent can still be working on it.
- * The notes cost up to 40% of a long transcript, so more history fits the budget without them.
+ * The notes are about a quarter of all text, so more history fits the budget without them.
  */
 export function dropProgressNotes(turns: readonly Turn[]): Turn[] {
   const lastUserIndex = turns.findLastIndex((turn) => turn.role === "user");
   return turns.filter(
-    (turn, index) => turn.role === "user" || index > lastUserIndex || turns[index + 1]?.role !== "assistant",
+    (turn, index) =>
+      turn.role === "user" ||
+      index > lastUserIndex ||
+      turns[index + 1]?.role !== "assistant" ||
+      turn.text.length >= MIN_KEPT_NOTE_CHARS,
   );
 }
 

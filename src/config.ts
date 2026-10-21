@@ -49,7 +49,8 @@ export function defaultSettings(): Settings {
   return {
     model: null,
     thinking: null,
-    maxInputChars: 120_000,
+    // Past the budget the middle of the chat is left out, and the decisions in it with it. This fits every session seen so far.
+    maxInputChars: 240_000,
     language: null,
     appendPrompt: null,
     recapAppendPrompt: null,

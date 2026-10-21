@@ -114,7 +114,7 @@ function userImageEntry(text: string): SessionEntry {
 test("prepareConversation reports what the model does not get", () => {
   const entries = [
     messageEntry("user", "goal"),
-    messageEntry("assistant", "a".repeat(9_000)),
+    messageEntry("assistant", "a".repeat(21_000)),
     userImageEntry("look at this"),
     messageEntry("assistant", "I see text only."),
     userImageEntry(""),
@@ -123,7 +123,7 @@ test("prepareConversation reports what the model does not get", () => {
   const prepared = prepareConversation(entries, 120_000);
   assert.equal(prepared.messageCount, 5);
   assert.deepEqual(prepared.warnings, [
-    "1 message is longer than 8000 characters. The model gets only the start and the end of it.",
+    "1 message is longer than 20000 characters. The model gets only the start and the end of it.",
     "2 user messages contain images. The model does not see images.",
   ]);
 });
@@ -145,4 +145,19 @@ test("prepareConversation gives no warning when nothing is lost", () => {
   const prepared = prepareConversation([messageEntry("user", "hi"), messageEntry("assistant", "hello")], 120_000);
   assert.deepEqual(prepared.warnings, []);
   assert.equal(prepared.messageCount, 2);
+});
+
+test("a long report before a short notice stays, a short note is dropped", () => {
+  const report = `Report: ${"r".repeat(400)}`;
+  const conversation: Turn[] = [
+    { role: "user", text: "go" },
+    { role: "assistant", text: "Now I look." },
+    { role: "assistant", text: report },
+    { role: "assistant", text: "A subagent finished. Nothing changed." },
+    { role: "user", text: "ok" },
+  ];
+  assert.deepEqual(
+    dropProgressNotes(conversation).map((turn) => turn.text),
+    ["go", report, "A subagent finished. Nothing changed.", "ok"],
+  );
 });

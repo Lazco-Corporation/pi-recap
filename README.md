@@ -107,7 +107,7 @@ A warning at the top of the popup tells you what the model did not get, so you c
 The popup shows a warning when:
 
 - the conversation is larger than `maxInputChars`, with the count of older messages that are left out
-- a message is longer than 8000 characters, so the model gets only its start and its end
+- a message is longer than 20000 characters, so the model gets only its start and its end
 - a user message contains an image, which the model does not see
 - the configured model is not available, so the session model wrote the text
 - a custom prompt has a placeholder that nothing fills
@@ -149,7 +149,7 @@ This example sends the call to a smaller model and sets the output language:
 | --- | --- | --- |
 | `model` | `null` | `"<provider>/<model-id>"`, or `null` for the session model |
 | `thinking` | `null` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` for both commands, or `null` for `low` in `/recap` and `medium` in `/summary` |
-| `maxInputChars` | `120000` | The max size of the conversation text, from 1000 to 2000000 |
+| `maxInputChars` | `240000` | The max size of the conversation text, from 1000 to 2000000 |
 | `language` | `null` | The output language, for example `"Traditional Chinese"`, or `null` to match your messages |
 
 If pi cannot find the `model`, or the model has no API key, the command uses the session model and shows a warning.
@@ -178,10 +178,10 @@ If the file has bad JSON or a bad field, the command shows an error and stops.
 
 - **No print or JSON mode.** These modes have no UI, so the commands do nothing.
 - **Text only.** The model reads your messages and the text of the agent replies. It does not read tool calls, tool results, thinking, or images. A detail that is only in a tool result can be missing from the result.
-- **Progress notes are dropped.** When the agent writes several messages in one turn, only its last message before your next message goes to the model. The notes before it, such as "Now I run the tests", are left out. The turn after your newest message is kept whole.
+- **Progress notes are dropped.** When the agent writes several messages in one turn, its short messages before the last one, such as "Now I run the tests", are left out. A message of 300 characters or more stays, so a report followed by a short notice is not lost. The turn after your newest message is kept whole.
 - **Skills show as commands.** A skill run shows to the model as the command that you typed, for example `/skill:<name> <args>`.
 - **No unfinished replies.** While the agent works, its unfinished reply is not in the conversation. The recap then only says what the agent works on.
-- **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message and the newest messages. A message longer than 8000 characters keeps only its start and its end.
+- **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message and the newest messages. The decisions in the middle of the chat are then missing from the summary, so raise `maxInputChars` when the warning shows. A message longer than 20000 characters keeps only its start and its end.
 - **Each run costs tokens.** Each run is a new model call with no prompt cache.
 - **Nothing is saved.** Press `c` before you close the popup to keep the text.
 
