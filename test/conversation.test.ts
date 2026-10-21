@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { clipTurnText, collectTurns, renderConversation, type Turn } from "../src/conversation.ts";
+import { clipTurnText, collectTurns, dropProgressNotes, renderConversation, type Turn } from "../src/conversation.ts";
 
 function messageEntry(role: string, content: unknown): SessionEntry {
   return { type: "message", id: "id", parentId: null, timestamp: "", message: { role, content } } as unknown as SessionEntry;
@@ -42,6 +42,33 @@ test("a clipped turn keeps the head and the tail", () => {
   assert.ok(clipped.startsWith("START"));
   assert.ok(clipped.endsWith("END"));
   assert.ok(clipped.includes("[…cut…]"));
+});
+
+test("progress notes before the last agent message of a run are dropped", () => {
+  const conversation: Turn[] = [
+    { role: "user", text: "fix it" },
+    { role: "assistant", text: "I read the file." },
+    { role: "assistant", text: "Now I run the tests." },
+    { role: "assistant", text: "Done: the tests pass." },
+    { role: "user", text: "ship it" },
+    { role: "assistant", text: "I open the PR." },
+    { role: "assistant", text: "The PR is merged." },
+    { role: "user", text: "thanks" },
+  ];
+  assert.deepEqual(
+    dropProgressNotes(conversation).map((turn) => turn.text),
+    ["fix it", "Done: the tests pass.", "ship it", "The PR is merged.", "thanks"],
+  );
+  assert.ok(!renderConversation(conversation, 10_000).includes("Now I run the tests."));
+});
+
+test("the run after the newest user turn keeps every message, because it may still be in progress", () => {
+  const conversation: Turn[] = [
+    { role: "user", text: "fix it" },
+    { role: "assistant", text: "I read the file." },
+    { role: "assistant", text: "Now I run the tests." },
+  ];
+  assert.deepEqual(dropProgressNotes(conversation), conversation);
 });
 
 const turns: Turn[] = [

@@ -139,6 +139,10 @@ This example sends the call to a smaller model and sets the output language:
 
 If pi cannot find the `model`, or the model has no API key, the command uses the session model and shows a warning.
 
+A small, fast model is enough for both commands.
+In our tests on 8 real sessions, Gemini 3.8 Flash and Claude Haiku 5.5 both gave usable results in 5 to 25 seconds.
+Gemini 3.8 Flash made fewer errors about the latest state, so it is the better default when you set a model.
+
 ### Prompts
 
 All prompt fields default to `null`.
@@ -159,6 +163,7 @@ If the file has bad JSON or a bad field, the command shows an error and stops.
 
 - **No print or JSON mode.** These modes have no UI, so the commands do nothing.
 - **Text only.** The model reads your messages and the text of the agent replies. It does not read tool calls, tool results, thinking, or images. A detail that is only in a tool result can be missing from the result.
+- **Progress notes are dropped.** When the agent writes several messages in one turn, only its last message before your next message goes to the model. The notes before it, such as "Now I run the tests", are left out. The turn after your newest message is kept whole.
 - **Skills show as commands.** A skill run shows to the model as the command that you typed, for example `/skill:<name> <args>`.
 - **No unfinished replies.** While the agent works, its unfinished reply is not in the conversation. The recap then only says what the agent works on.
 - **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message and the newest messages. A message longer than 8000 characters keeps only its start and its end.

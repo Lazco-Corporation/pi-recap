@@ -3,7 +3,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { loadSettings, type Settings, thinkingFor } from "./config.ts";
 import { collectTurns, renderConversation } from "./conversation.ts";
-import { chooseModel, composePrompt, generateMarkdown, type ModelChoice, renderPrompt } from "./generate.ts";
+import { chooseModel, composePrompt, generateMarkdown, type ModelChoice, renderPrompt, statusLine } from "./generate.ts";
 import { ResultPopup } from "./popup.ts";
 
 /**
@@ -80,9 +80,7 @@ async function runDigestCommand(
 
   const prompt = renderPrompt(composePrompt(command.kind, settings, args), {
     conversation: renderConversation(turns, settings.maxInputChars),
-    status: ctx.isIdle()
-      ? "The agent is idle and waits for the user."
-      : "The agent is working on the newest user message right now. Its reply is not in the conversation yet, so say what it is working on.",
+    status: statusLine(ctx.isIdle()),
     sessionName: ctx.sessionManager.getSessionName() ?? "(none)",
     cwd: ctx.cwd,
     language: settings.language ?? "",

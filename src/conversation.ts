@@ -70,13 +70,27 @@ export function collectTurns(entries: readonly SessionEntry[]): Turn[] {
 }
 
 /**
+ * Drop an agent message when another agent message follows it before the next user message.
+ * Those are progress notes such as "Now I check the pods", and the last agent message of the run reports the result.
+ * The run after the newest user message stays whole, because the agent can still be working on it.
+ * The notes cost up to 40% of a long transcript, so more history fits the budget without them.
+ */
+export function dropProgressNotes(turns: readonly Turn[]): Turn[] {
+  const lastUserIndex = turns.findLastIndex((turn) => turn.role === "user");
+  return turns.filter(
+    (turn, index) => turn.role === "user" || index > lastUserIndex || turns[index + 1]?.role !== "assistant",
+  );
+}
+
+/**
  * Render turns as a transcript that fits inside `maxChars`.
  *
  * The first user turn always stays, because it says what the session is for.
  * The rest of the budget fills from the newest turn backwards,
  * because the current state matters most for both a recap and a summary.
  */
-export function renderConversation(turns: readonly Turn[], maxChars: number): string {
+export function renderConversation(allTurns: readonly Turn[], maxChars: number): string {
+  const turns = dropProgressNotes(allTurns);
   if (turns.length === 0) return "";
 
   const lines = turns.map((turn) => `${turn.role === "user" ? "User" : "Agent"}: ${turn.text}`);

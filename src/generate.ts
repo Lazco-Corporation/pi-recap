@@ -39,6 +39,13 @@ function commonRules(language: string | null): string {
 ${languageRule(language)}`;
 }
 
+/** The `{{status}}` text: a working agent has no reply in the conversation yet, so the model must say what it works on. */
+export function statusLine(agentIsIdle: boolean): string {
+  return agentIsIdle
+    ? "The agent is idle and waits for the user."
+    : "The agent is working on the newest User message right now. Its reply is not in the conversation yet, so say what it is working on. What that message asked for is in progress, not open and not waiting on the user.";
+}
+
 /** Build the default prompt for recap or summary, with the configured language if present. */
 export function buildDefaultPrompt(kind: "recap" | "summary", language: string | null = null): string {
   if (kind === "recap") {
@@ -66,7 +73,7 @@ Use these sections, in this order. Start each one with a Markdown "##" heading i
 2. Heading that means "Decisions": each decision, with its reason.
 3. Heading that means "Done": finished work, with the files and commands that the conversation names.
 4. Heading that means "Current state": where the work stands. {{status}}
-5. Heading that means "Open questions": questions and choices that nobody answered yet, actions that wait on the user or on another person, and risks or limits that the agent warned about.
+5. Heading that means "Open questions": questions and choices that nobody answered yet, actions that wait on the user or on another person, and risks or limits that the agent warned about. Small items count too, such as a step the user can retry or a pull request that waits for review.
 6. Heading that means "Next steps": what must happen next, in order. Only steps that are not done yet.
 
 Rules:

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultSettings } from "../src/config.ts";
-import { buildDefaultPrompt, composePrompt, RECAP_PROMPT, renderPrompt, SUMMARY_PROMPT } from "../src/generate.ts";
+import { buildDefaultPrompt, composePrompt, RECAP_PROMPT, renderPrompt, statusLine, SUMMARY_PROMPT } from "../src/generate.ts";
 
 const variables = { conversation: "User: hi", status: "idle", sessionName: "s", cwd: "/w", language: "zh-TW" };
 
@@ -52,6 +52,11 @@ test("the recap prompt has no English label for the model to copy", () => {
 
 test("the summary prompt has no English heading for the model to copy", () => {
   assert.doesNotMatch(SUMMARY_PROMPT, /^- (Goal|Decisions|Done|Current state|Open questions|Next steps):/m);
+});
+
+test("the working status says the newest request is in progress, not open", () => {
+  assert.match(statusLine(false), /in progress, not open/);
+  assert.match(statusLine(true), /idle/);
 });
 
 test("composePrompt appends appendPrompt, command-specific append, and args", () => {

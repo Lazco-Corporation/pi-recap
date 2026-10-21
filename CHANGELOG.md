@@ -3,6 +3,34 @@
 All releases of `@lazco/pi-recap` are in this file.
 The newest release is at the top.
 
+## [0.3.0] - 2026-10-21
+
+### Added
+
+- The popup shows the text while the model writes it, with a spinner under it until the model ends.
+  `Esc` stops the model while it writes.
+  `c` copies after the model ends.
+
+### Changed
+
+- `/recap` and `/summary` report the latest state of the work.
+  The prompt tells the model that a later message can finish or cancel an earlier one, to check later messages before it lists an open item, and to call work done only when a message says so.
+- The `thinking` setting defaults to `null`.
+  Then `/recap` runs at `low` and `/summary` runs at `medium`.
+  A set value still applies to both commands.
+  With a session or configured model that has no `thinking` setting, `/summary` is slower than before and costs more, because it thinks more.
+- **Your turn** and **Open questions** also cover steps that the agent asked you to do or confirm, risks that it warned about, and small items such as a step to retry or a pull request that waits for review.
+- When the agent is still working, the recap treats what your newest message asked for as work in progress, not as open items.
+- Progress notes are left out of the conversation that the model reads.
+  When the agent writes several messages in one turn, only its last message before your next message goes to the model.
+  The turn after your newest message is kept whole.
+  This keeps more history inside `maxInputChars` and lowers the cost.
+
+### Fixed
+
+- With the `language` setting, the recap labels and the summary headings are in that language.
+  Before this fix, a small model often kept the English labels **Goal**, **Now**, and **Your turn**, or the English section headings.
+
 ## [0.2.1] - 2026-10-08
 
 ### Fixed
@@ -39,6 +67,7 @@ This is the first release.
 - The settings file `~/.pi/agent/recap.json` sets the model, the thinking level, the input size, the language, and the prompts.
 - Text after the command adds instructions for one run, for example `/recap focus on git changes`.
 
+[0.3.0]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Lazco-Corporation/pi-recap/releases/tag/v0.1.0
