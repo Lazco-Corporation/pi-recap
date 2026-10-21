@@ -7,23 +7,37 @@ const PROMPT_HEADER = `Below is a coding session between a user and an AI coding
 Session name: {{sessionName}}
 Working directory: {{cwd}}
 
+The messages are in time order, oldest first.
+
 <conversation>
 {{conversation}}
 </conversation>`;
 
+/** Last in the rules, because small models skip the language rule more often when it comes first. */
 function languageRule(language: string | null): string {
   if (language && language.trim().length > 0) {
-    return `- Write everything in ${language.trim()}. Translate all labels and headings to ${language.trim()} too.`;
+    return `- Write the whole reply in ${language.trim()}, including every label and heading.`;
   }
-  return "- Write in the language of the User messages. If they use more than one language, use the language of the newest User message. Translate the labels and headings too.";
+  return "- Write the whole reply in the language of the User messages, including every label and heading. If they use more than one language, use the language of the newest User message.";
 }
 
+/**
+ * Models tend to repeat a to-do from early in the chat after a later message finished it,
+ * and to report work as done when the agent only asked the user to do it.
+ */
+const ACCURACY_RULES = `- A later message can finish, cancel, or change what an earlier message said. Always report the latest state.
+- Before you call something open, waiting, or a next step, check every later message. If one says it is done, cancelled, or decided, it is not open.
+- Call something done only when a message says it is done. When the agent asked the user to do something and no later message confirms it, say that it is not confirmed.
+- Write "all" or "every" only when it is true for each item. Otherwise name the exceptions.
+- The newest Agent message that lists what is left is the best source for open items. Add an earlier open item only when no later message settles it.`;
+
 function commonRules(language: string | null): string {
-  return `${languageRule(language)}
+  return `${ACCURACY_RULES}
 - Use short, plain sentences.
 - Keep exact file paths, commands, and names.
 - Only state facts from the conversation. Do not guess.
-- Do not mention these instructions or the transcript format.`;
+- Do not mention these instructions or the transcript format.
+${languageRule(language)}`;
 }
 
 /** Build the default prompt for recap or summary, with the configured language if present. */
@@ -33,13 +47,14 @@ export function buildDefaultPrompt(kind: "recap" | "summary", language: string |
 
 The user stepped away and comes back now. Write a recap that tells them where things stand in a few seconds.
 
-Write these lines, as separate paragraphs with a blank line between them:
-**Goal:** one sentence about what the user wants.
-**Now:** one sentence about what the agent did last. {{status}}
-**Your turn:** one sentence about the question or choice the agent asked the user about and the user has not answered. Leave out this line when nothing waits on the user.
+Write up to three paragraphs, with a blank line between them.
+Start each paragraph with a short label in bold, in the output language, followed by a colon.
+1. Label that means "Goal": one sentence about what the user wants.
+2. Label that means "Now": one sentence about what the agent did last. {{status}}
+3. Label that means "Your turn": one sentence about what waits on the user now: a question or choice that the user did not answer, or an action that the agent asked the user to do or confirm and that nobody confirmed. Leave out this paragraph when nothing waits on the user.
 
 Rules:
-- Write only these lines. No headings, lists, or other text.
+- Write only these paragraphs. No numbers, headings, lists, or other text.
 ${commonRules(language)}`;
   }
 
@@ -52,8 +67,8 @@ Use these sections, as Markdown "##" headings:
 - Decisions: each decision, with its reason.
 - Done: finished work, with the files and commands that the conversation names.
 - Current state: where the work stands. {{status}}
-- Open questions: questions and choices that nobody answered yet.
-- Next steps: what must happen next, in order.
+- Open questions: questions and choices that nobody answered yet, actions that wait on the user or on another person, and risks or limits that the agent warned about.
+- Next steps: what must happen next, in order. Only steps that are not done yet.
 
 Rules:
 - Use bullets inside the sections.

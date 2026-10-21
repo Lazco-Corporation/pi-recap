@@ -47,7 +47,8 @@ export interface Settings {
 export function defaultSettings(): Settings {
   return {
     model: null,
-    thinking: "low",
+    // At "low", small models list to-dos that a later message already finished.
+    thinking: "medium",
     maxInputChars: 120_000,
     language: null,
     appendPrompt: null,

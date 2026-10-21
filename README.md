@@ -68,7 +68,7 @@ The popup shows text like this:
 
 - **Goal:** what you want.
 - **Now:** what the agent did last, or what it does now.
-- **Your turn:** the question that waits on you. The model leaves out this line when nothing waits.
+- **Your turn:** what waits on you: a question that you did not answer, or a step that the agent asked you to do or confirm. The model leaves out this line when nothing waits.
 
 ### `/summary`
 
@@ -80,7 +80,7 @@ The record has these sections, in this order:
 2. **Decisions**, each with its reason
 3. **Done**
 4. **Current state**
-5. **Open questions**
+5. **Open questions**, including steps that wait on you and risks that the agent warned about
 6. **Next steps**
 
 The model leaves out a section that has nothing to say.
@@ -131,7 +131,7 @@ This example sends the call to a smaller model and sets the output language:
 | Field | Default | Value |
 | --- | --- | --- |
 | `model` | `null` | `"<provider>/<model-id>"`, or `null` for the session model |
-| `thinking` | `"low"` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` |
+| `thinking` | `"medium"` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` |
 | `maxInputChars` | `120000` | The max size of the conversation text, from 1000 to 2000000 |
 | `language` | `null` | The output language, for example `"Traditional Chinese"`, or `null` to match your messages |
 
