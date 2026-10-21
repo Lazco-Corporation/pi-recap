@@ -32,13 +32,13 @@ The prompt can use these variables:
 
 | Variable | Value |
 | --- | --- |
-| `{{conversation}}` | The conversation text. If the prompt does not have it, the command adds it at the end. |
-| `{{status}}` | One sentence that says if the agent is idle or works now |
+| `{{conversation}}` | The conversation text, as `User:` and `Agent:` lines, built by the rules in [What the model reads](../README.md#what-the-model-reads). If the prompt does not have it, the command adds it at the end. |
+| `{{status}}` | One or two sentences that say if the agent is idle, or that it works on the newest message now and that this message is in progress |
 | `{{sessionName}}` | The session name, or `(none)` |
 | `{{cwd}}` | The working directory |
 | `{{language}}` | The `language` setting, or empty text |
 
-The command keeps an unknown variable as it is, so a typo shows in the output.
+The command keeps an unknown variable as it is and shows a warning, so a typo shows in the output.
 
 ```json
 {

@@ -8,7 +8,7 @@ Pi extension: `/recap` and `/summary` show where the conversation stands, in a p
 
 <img src="https://lazco-public-15298932ec.pub.t4.txg1.lazco.cloud/pi-recap/recap.gif" width="720" alt="In a pi session, the user types /recap. A popup opens with three lines: Goal, Now, and Your turn.">
 
-[Demo video](#demo-video) · [Installation](#installation) · [Usage](#usage) · [Settings](#settings) · [Limitations](#limitations)
+[Demo video](#demo-video) · [Installation](#installation) · [Usage](#usage) · [What the model reads](#what-the-model-reads) · [Settings](#settings) · [Limitations](#limitations)
 
 </div>
 
@@ -106,14 +106,15 @@ The top right corner of the popup shows the name of the model that wrote the tex
 A warning at the top of the popup tells you what the model did not get, so you can tell a thin result from a thin conversation.
 The popup shows a warning when:
 
-- the conversation is larger than `maxInputChars`, with the count of older messages that are left out and the count of older user messages that stay
+- the conversation is larger than `maxInputChars`, with the count of older messages that are left out and the count of your older messages that stay
 - a message is longer than 20000 characters, so the model gets only its start and its end
-- a user message contains an image, which the model does not see
+- a message of yours contains an image, which the model does not see
 - the configured model is not available, so the session model wrote the text
 - a custom prompt has a placeholder that nothing fills
 - the model stopped at its output limit, so the text can end early
 
 There is no warning when the model shows no thinking.
+The rules behind the first three warnings are in [What the model reads](#what-the-model-reads).
 
 ### RPC mode
 
@@ -127,6 +128,52 @@ The client gets `notify` records of the type `extension_ui_request`, in this ord
 
 The `prompt` response, with `disposition` `"handled"`, comes after the last record.
 The RPC `abort` command does not stop the model call.
+
+## What the model reads
+
+Each run builds one text from the session and sends it to the model with the instructions.
+The rules below say what goes in, in the order they apply.
+
+**Source.**
+The text comes from the current branch of the session, from the first message to the newest one.
+After `/tree`, that is the branch you are on.
+Messages from before a compaction are in it, because the extension reads the session file, not the compacted context.
+
+**Text only.**
+Only what you typed and the text of the agent replies go in, as `User:` and `Agent:` lines.
+Tool calls, tool results, thinking, images, the system prompt, and messages from extensions do not.
+A message of yours that is only an image is left out, and a warning says how many messages had images.
+A skill run shows as the command you typed, for example `/skill:<name> <args>`, without the skill file.
+
+**Progress notes.**
+When the agent writes several messages in one turn, the last one usually reports the result, and the ones before it are notes such as "Now I run the tests".
+A note under 300 characters is left out.
+A longer message stays, so a report that a short notice follows is not lost.
+The turn after your newest message is kept whole, because the agent can still be working on it.
+
+**Long messages.**
+A message longer than 20000 characters keeps 20000 of them: two thirds from its start and one third from its end, with a `[…cut…]` marker between them.
+This stops one pasted log from taking the whole budget.
+A warning says how many messages were cut.
+
+**The budget.**
+The text is at most `maxInputChars` characters, 240000 by default.
+When the session is larger, the text holds three parts:
+
+1. Your first message, cut to a quarter of the budget at most, because it says what the session is for.
+2. From the part that does not fit, your messages only, each cut to 1000 characters, together at most a quarter of the budget, newest first.
+   A marker before them says how many turns are left out, and that the agent replies to these messages are not there.
+3. The newest messages that fill the rest of the budget.
+
+The count in the spinner is the number of messages in parts 1 and 3.
+The reasons behind a decision in the cut part can be missing from the summary, because only your side of it is there.
+A warning shows the counts.
+To keep the whole session, raise `maxInputChars`.
+
+**The agent state.**
+When the agent is idle, the instructions say so.
+When the agent is still working, your newest message is in the text and the unfinished reply is not.
+The instructions then tell the model that this message is in progress, so the recap says what the agent works on instead of listing it as open.
 
 ## Settings
 
@@ -149,14 +196,22 @@ This example sends the call to a smaller model and sets the output language:
 | --- | --- | --- |
 | `model` | `null` | `"<provider>/<model-id>"`, or `null` for the session model |
 | `thinking` | `null` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` for both commands, or `null` for `low` in `/recap` and `medium` in `/summary` |
-| `maxInputChars` | `240000` | The max size of the conversation text, from 1000 to 2000000 |
+| `maxInputChars` | `240000` | The max size of the conversation text, from 1000 to 2000000. See [the budget](#what-the-model-reads). |
 | `language` | `null` | The output language, for example `"Traditional Chinese"`, or `null` to match your messages |
 
 If pi cannot find the `model`, or the model has no API key, the command uses the session model and shows a warning.
 
+#### Which model and thinking level
+
 A small, fast model is enough for both commands.
-In our tests on 8 real sessions, Gemini 3.8 Flash and Claude Haiku 5.5 both gave usable results in 5 to 25 seconds.
-Gemini 3.8 Flash made fewer errors about the latest state, so it is the better default when you set a model.
+The defaults come from tests on real sessions, described in [docs/evaluation.md](docs/evaluation.md).
+In short:
+
+- Gemini 3.8 Flash made no error about the latest state in 48 outputs and missed few facts. It is the better choice when you set a model.
+- Claude Haiku 5.5 is cheaper and its recap is faster, but it reported a finished step as open in about one output of four, because at `medium` it often skips its thinking.
+- `/recap` reads only the latest state, so `low` is as accurate as `medium` there and faster.
+- `/summary` at `medium` keeps more facts than at `low`, for about 5 seconds more with Gemini 3.8 Flash. Set `thinking` to `low` if speed matters more than completeness.
+- `high` made the summary twice as slow without fewer errors.
 
 ### Prompts
 
@@ -177,12 +232,11 @@ If the file has bad JSON or a bad field, the command shows an error and stops.
 ## Limitations
 
 - **No print or JSON mode.** These modes have no UI, so the commands do nothing.
-- **Text only.** The model reads your messages and the text of the agent replies. It does not read tool calls, tool results, thinking, or images. A detail that is only in a tool result can be missing from the result.
-- **Progress notes are dropped.** When the agent writes several messages in one turn, its short messages before the last one, such as "Now I run the tests", are left out. A message of 300 characters or more stays, so a report followed by a short notice is not lost. The turn after your newest message is kept whole.
-- **Skills show as commands.** A skill run shows to the model as the command that you typed, for example `/skill:<name> <args>`.
+- **Text only.** A detail that is only in a tool result, an image, or a short progress note can be missing from the result. The rules are in [What the model reads](#what-the-model-reads).
+- **Long sessions are cut.** Past `maxInputChars`, the agent replies from the middle of the session are left out, and the reasons behind the decisions there with them. The warning shows the counts, and a larger `maxInputChars` keeps more.
 - **No unfinished replies.** While the agent works, its unfinished reply is not in the conversation. The recap then only says what the agent works on.
-- **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message, the newest messages, and from the part between them only your messages, each cut to 1000 characters. The agent replies in that part are left out, so the reasons behind the decisions there can be missing from the summary. Raise `maxInputChars` when the warning shows. A message longer than 20000 characters keeps only its start and its end.
-- **Each run costs tokens.** Each run is a new model call with no prompt cache.
+- **The model can still be wrong.** A small model sometimes reports a finished step as open. The tests in [docs/evaluation.md](docs/evaluation.md) show how often, per model.
+- **Each run costs tokens.** Each run is a new model call. The extension asks for no prompt cache, but a provider can still apply one.
 - **Nothing is saved.** Press `c` before you close the popup to keep the text.
 
 ## Contributing

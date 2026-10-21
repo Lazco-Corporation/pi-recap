@@ -11,34 +11,34 @@ The newest release is at the top.
   `Esc` stops the model while it writes.
   `c` copies after the model ends.
 - While the model reads, the spinner shows how many messages the model gets, and the newest line of the model's thinking when it shows one.
-- A warning at the top of the popup tells you what the model did not get: older messages past `maxInputChars`, messages longer than 20000 characters, user messages with images, a model that stood in for the configured one, a placeholder in a custom prompt that nothing fills, or a text that stopped at the output limit.
+- A warning at the top of the popup tells you what the model did not get: older messages past `maxInputChars`, messages longer than 20000 characters, your messages with images, a model that stood in for the configured one, a placeholder in a custom prompt that nothing fills, or a text that stopped at the output limit.
   In RPC mode, each warning is a `notify` record.
 
 ### Changed
 
 - `/recap` and `/summary` report the latest state of the work.
   The prompt tells the model that a later message can finish or cancel an earlier one, to check later messages before it lists an open item, and to call work done only when a message says so.
+- **Your turn** and **Open questions** also cover steps that the agent asked you to do or confirm, risks that it warned about, and small items such as a step to retry or a pull request that waits for review.
+- When the agent is still working, the recap treats what your newest message asked for as work in progress, not as open items.
 - The `thinking` setting defaults to `null`.
   Then `/recap` runs at `low` and `/summary` runs at `medium`.
   A set value still applies to both commands.
   With a session or configured model that has no `thinking` setting, `/summary` is slower than before and costs more, because it thinks more.
-- **Your turn** and **Open questions** also cover steps that the agent asked you to do or confirm, risks that it warned about, and small items such as a step to retry or a pull request that waits for review.
-- When the agent is still working, the recap treats what your newest message asked for as work in progress, not as open items.
-- Progress notes are left out of the conversation that the model reads.
-  When the agent writes several messages in one turn, its messages under 300 characters before the last one are left out.
-  The turn after your newest message is kept whole.
-  This keeps more history inside `maxInputChars` and lowers the cost.
-- `maxInputChars` defaults to `240000`, up from `120000`.
-  Past the budget, the middle of the chat is left out, and the decisions in it are missing from the summary.
-  The new default fits every session in our tests.
-- Past `maxInputChars`, your messages from the part that is left out stay, each cut to 1000 characters, so the model still sees what you asked for and decided there.
-  They take at most a quarter of the budget.
-- A message keeps up to 20000 characters before it is cut in the middle, up from 8000, so a long agent report with tables stays whole.
+- The conversation text that the model reads follows new rules.
+  Progress notes are left out: when the agent writes several messages in one turn, its messages under 300 characters before the last one do not go in, and the turn after your newest message is kept whole.
+  A message keeps up to 20000 characters before it is cut in the middle, up from 8000, so a long agent report with tables stays whole.
+  `maxInputChars` defaults to `240000`, up from `120000`, because past the budget the middle of the chat is left out and the decisions in it are missing from the summary.
+  Past the budget, your messages from the part that is left out still go in, each cut to 1000 characters and within a quarter of the budget, so the model sees what you asked for and decided there.
 
 ### Fixed
 
 - With the `language` setting, the recap labels and the summary headings are in that language.
   Before this fix, a small model often kept the English labels **Goal**, **Now**, and **Your turn**, or the English section headings.
+
+### Docs
+
+- The README has a section on what the model reads, and advice on the model and thinking level.
+- `docs/evaluation.md` records the tests behind the prompt and the defaults.
 
 ## [0.2.1] - 2026-10-08
 
