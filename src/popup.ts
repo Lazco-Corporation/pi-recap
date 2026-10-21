@@ -30,9 +30,20 @@ const SPINNER_INTERVAL_MS = 80;
 const NOTICE_DURATION_MS = 1_500;
 
 type PopupState =
-  | { kind: "loading"; message: string }
-  | { kind: "text"; source: string; markdown: Markdown; warning?: string; streaming: boolean }
+  /** `thinking` is the model's reasoning so far. It shows as one line under the spinner. */
+  | { kind: "loading"; message: string; thinking: string }
+  | { kind: "text"; source: string; markdown: Markdown; streaming: boolean }
   | { kind: "error"; message: string };
+
+/** The newest line of the model's thinking, cut to one row. Empty when there is no thinking yet. */
+export function thinkingLine(thinking: string, width: number): string {
+  const line = thinking
+    .split("\n")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .at(-1);
+  return line ? truncateToWidth(line, width, "…") : "";
+}
 
 export interface ResultPopupOptions {
   tui: TUI;
@@ -43,6 +54,8 @@ export interface ResultPopupOptions {
   /** Shown on the right of the top border, for example the model id. */
   subtitle: string;
   loadingMessage: string;
+  /** What the model does not get, or what went wrong on the way. Shown above the body in every state. */
+  warnings?: readonly string[];
   onClose: () => void;
 }
 
@@ -54,6 +67,7 @@ export class ResultPopup implements Component {
   private readonly subtitle: string;
   private readonly onClose: () => void;
   private state: PopupState;
+  private warnings: string[];
   private spinnerFrame = 0;
   private spinnerTimer: ReturnType<typeof setInterval> | undefined;
   private scrollTop = 0;
@@ -70,36 +84,48 @@ export class ResultPopup implements Component {
     this.title = options.title;
     this.subtitle = options.subtitle;
     this.onClose = options.onClose;
-    this.state = { kind: "loading", message: options.loadingMessage };
+    this.warnings = [...(options.warnings ?? [])];
+    this.state = { kind: "loading", message: options.loadingMessage, thinking: "" };
     this.spinnerTimer = setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
       this.tui.requestRender();
     }, SPINNER_INTERVAL_MS);
   }
 
+  /** Show the model's thinking so far. Only the newest line is drawn, and only while nothing else shows. */
+  showThinking(thinking: string): void {
+    if (this.state.kind !== "loading") return;
+    this.state.thinking = thinking;
+    this.tui.requestRender();
+  }
+
   /** Show the text so far while the model still writes. The spinner keeps going under it. */
-  showPartialText(markdownText: string, warning?: string): void {
-    this.setText(markdownText, warning, true);
+  showPartialText(markdownText: string): void {
+    this.setText(markdownText, true);
   }
 
-  showText(markdownText: string, warning?: string): void {
+  showText(markdownText: string): void {
     this.stopSpinner();
-    this.setText(markdownText, warning, false);
+    this.setText(markdownText, false);
   }
 
-  private setText(markdownText: string, warning: string | undefined, streaming: boolean): void {
+  /** A warning that turns up late, for example when the model hits its output limit. */
+  addWarning(warning: string): void {
+    this.warnings.push(warning);
+    this.tui.requestRender();
+  }
+
+  private setText(markdownText: string, streaming: boolean): void {
     if (this.state.kind === "text") {
       // The same Markdown object keeps its place, so the scroll position survives each update.
       this.state.markdown.setText(markdownText);
       this.state.source = markdownText;
-      this.state.warning = warning;
       this.state.streaming = streaming;
     } else {
       this.state = {
         kind: "text",
         source: markdownText,
         markdown: new Markdown(markdownText, 0, 0, getMarkdownTheme(), undefined, { transform: addEmphasisMarkers }),
-        warning,
         streaming,
       };
       this.scrollTop = 0;
@@ -180,19 +206,28 @@ export class ResultPopup implements Component {
   }
 
   private renderBody(innerWidth: number): string[] {
+    const warningLines = this.warnings.flatMap((warning) => wrapTextWithAnsi(this.theme.fg("warning", `! ${warning}`), innerWidth));
+    const body = this.renderState(innerWidth);
+    return warningLines.length > 0 ? [...warningLines, "", ...body] : body;
+  }
+
+  private renderState(innerWidth: number): string[] {
     const theme = this.theme;
+    const spinner = theme.fg("accent", SPINNER_FRAMES[this.spinnerFrame] ?? "");
     switch (this.state.kind) {
       case "loading": {
-        const spinner = theme.fg("accent", SPINNER_FRAMES[this.spinnerFrame] ?? "");
-        return wrapTextWithAnsi(`${spinner} ${theme.fg("muted", this.state.message)}`, innerWidth);
+        const lines = wrapTextWithAnsi(`${spinner} ${theme.fg("muted", this.state.message)}`, innerWidth);
+        // The newest thought tells the user what the model looks at, while the text is still to come.
+        const thought = thinkingLine(this.state.thinking, Math.max(1, innerWidth - 2));
+        if (thought.length > 0) lines.push(`  ${theme.fg("dim", thought)}`);
+        return lines;
       }
       case "error":
         return wrapTextWithAnsi(theme.fg("error", this.state.message), innerWidth);
       case "text": {
         const lines = this.state.markdown.render(innerWidth).map(removeEmphasisMarkers);
-        if (this.state.streaming) lines.push("", theme.fg("accent", SPINNER_FRAMES[this.spinnerFrame] ?? ""));
-        if (!this.state.warning) return lines;
-        return [...wrapTextWithAnsi(theme.fg("warning", this.state.warning), innerWidth), "", ...lines];
+        if (this.state.streaming) lines.push("", spinner);
+        return lines;
       }
     }
   }

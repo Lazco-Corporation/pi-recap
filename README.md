@@ -49,7 +49,8 @@ In a pi session that has messages, type one of the two commands:
 | [`/summary`](#summary) | You hand work to another person or session, or write a pull request or an issue. | 6 sections, from the goal to the next steps |
 
 A popup opens over the chat.
-A spinner shows while the model reads the conversation.
+While the model reads the conversation, a spinner shows how many messages it reads.
+If the model shows its thinking, the newest line of it shows under the spinner.
 The text shows as the model writes it.
 Press `Esc` to close the popup.
 If the model still writes, `Esc` also stops it.
@@ -100,6 +101,20 @@ The model leaves out a section that has nothing to say.
 `Esc` during loading also stops the model call.
 The top right corner of the popup shows the name of the model that wrote the text.
 
+### Warnings
+
+A warning at the top of the popup tells you what the model did not get, so you can tell a thin result from a thin conversation.
+The popup shows a warning when:
+
+- the conversation is larger than `maxInputChars`, with the count of older messages that are left out
+- a message is longer than 8000 characters, so the model gets only its start and its end
+- a user message contains an image, which the model does not see
+- the configured model is not available, so the session model wrote the text
+- a custom prompt has a placeholder that nothing fills
+- the model stopped at its output limit, so the text can end early
+
+There is no warning when the model shows no thinking.
+
 ### RPC mode
 
 In [RPC mode](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md), there is no popup.
@@ -107,7 +122,7 @@ Send the command as a `prompt` command, for example `{"type": "prompt", "message
 The client gets `notify` records of the type `extension_ui_request`, in this order:
 
 1. `Reading <N> messages with <model-id>…`, with `notifyType` `"info"`.
-2. The [model warning](#model-and-output), with `notifyType` `"warning"`, only if pi used the session model instead.
+2. Each [warning](#warnings), with `notifyType` `"warning"`. The output limit warning comes after the model call instead.
 3. The text as Markdown, with `notifyType` `"info"`. If the model call fails, the error, with `notifyType` `"error"`.
 
 The `prompt` response, with `disposition` `"handled"`, comes after the last record.

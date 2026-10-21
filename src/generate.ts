@@ -127,6 +127,12 @@ export interface PromptVariables extends Record<string, string> {
   language: string;
 }
 
+/** Placeholders in the template that no variable fills, such as a typo in a custom prompt. */
+export function unknownPlaceholders(template: string, variables: PromptVariables): string[] {
+  const names = [...template.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1] as string);
+  return [...new Set(names.filter((name) => variables[name] === undefined))].map((name) => `{{${name}}}`);
+}
+
 /** Unknown placeholders stay as they are, so a typo shows up in the output instead of vanishing. */
 export function renderPrompt(template: string, variables: PromptVariables): string {
   const filled = template.replace(/\{\{(\w+)\}\}/g, (placeholder, name: string) => variables[name] ?? placeholder);
@@ -155,19 +161,29 @@ export function chooseModel(settings: Settings, context: ExtensionContext): Mode
   return sessionModel ? { model: sessionModel, warning: `${problem} The session model was used.` } : undefined;
 }
 
-export type GenerateResult = { kind: "text"; markdown: string } | { kind: "error"; message: string } | { kind: "aborted" };
+export type GenerateResult =
+  /** `cutOff` is set when the model hit its output limit, so the text can end early. */
+  | { kind: "text"; markdown: string; cutOff: boolean }
+  | { kind: "error"; message: string }
+  | { kind: "aborted" };
 
 export interface GenerateOptions {
   thinking: ModelThinkingLevel;
   signal: AbortSignal;
   /** Called with the whole text so far each time more text arrives. */
   onText?: (markdown: string) => void;
+  /** Called with the whole thinking so far each time more thinking arrives. Never called when the model shows no thinking. */
+  onThinking?: (thinking: string) => void;
 }
 
-function joinText(message: AssistantMessage): string {
+function joinBlocks(message: AssistantMessage, type: "text" | "thinking"): string {
   return message.content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text")
-    .map((block) => block.text)
+    .map((block) => {
+      if (type === "text" && block.type === "text") return block.text;
+      if (type === "thinking" && block.type === "thinking") return block.thinking;
+      return "";
+    })
+    .filter((part) => part.length > 0)
     .join("\n")
     .trim();
 }
@@ -178,7 +194,7 @@ export async function generateMarkdown(
   context: ExtensionContext,
   options: GenerateOptions,
 ): Promise<GenerateResult> {
-  const { thinking, signal, onText } = options;
+  const { thinking, signal, onText, onThinking } = options;
   const stream = context.modelRegistry.streamSimple(
     model,
     { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
@@ -188,9 +204,10 @@ export async function generateMarkdown(
       signal,
     },
   );
-  if (onText) {
+  if (onText || onThinking) {
     for await (const event of stream) {
-      if (event.type === "text_delta") onText(joinText(event.partial));
+      if (event.type === "text_delta") onText?.(joinBlocks(event.partial, "text"));
+      else if (event.type === "thinking_delta") onThinking?.(joinBlocks(event.partial, "thinking"));
     }
   }
   const reply = await stream.result();
@@ -198,7 +215,7 @@ export async function generateMarkdown(
   if (reply.stopReason === "aborted" || signal.aborted) return { kind: "aborted" };
   if (reply.stopReason === "error") return { kind: "error", message: reply.errorMessage ?? "The model request failed." };
 
-  const markdown = joinText(reply);
+  const markdown = joinBlocks(reply, "text");
   if (markdown.length === 0) return { kind: "error", message: "The model returned no text." };
-  return { kind: "text", markdown };
+  return { kind: "text", markdown, cutOff: reply.stopReason === "length" };
 }

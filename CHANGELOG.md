@@ -10,6 +10,9 @@ The newest release is at the top.
 - The popup shows the text while the model writes it, with a spinner under it until the model ends.
   `Esc` stops the model while it writes.
   `c` copies after the model ends.
+- While the model reads, the spinner shows how many messages the model gets, and the newest line of the model's thinking when it shows one.
+- A warning at the top of the popup tells you what the model did not get: older messages past `maxInputChars`, messages longer than 8000 characters, user messages with images, a model that stood in for the configured one, a placeholder in a custom prompt that nothing fills, or a text that stopped at the output limit.
+  In RPC mode, each warning is a `notify` record.
 
 ### Changed
 

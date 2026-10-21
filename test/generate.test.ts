@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultSettings } from "../src/config.ts";
-import { buildDefaultPrompt, composePrompt, RECAP_PROMPT, renderPrompt, statusLine, SUMMARY_PROMPT } from "../src/generate.ts";
+import {
+  buildDefaultPrompt,
+  composePrompt,
+  RECAP_PROMPT,
+  renderPrompt,
+  statusLine,
+  SUMMARY_PROMPT,
+  unknownPlaceholders,
+} from "../src/generate.ts";
 
 const variables = { conversation: "User: hi", status: "idle", sessionName: "s", cwd: "/w", language: "zh-TW" };
 
@@ -73,3 +81,9 @@ test("composePrompt appends appendPrompt, command-specific append, and args", ()
   assert.ok(prompt.includes("- Focus on files."));
 });
 
+
+test("unknownPlaceholders names the placeholders that nothing fills", () => {
+  assert.deepEqual(unknownPlaceholders("{{conversation}} {{nope}} {{nope}} {{cwd}} {{other}}", variables), ["{{nope}}", "{{other}}"]);
+  assert.deepEqual(unknownPlaceholders(RECAP_PROMPT, variables), []);
+  assert.deepEqual(unknownPlaceholders(SUMMARY_PROMPT, variables), []);
+});

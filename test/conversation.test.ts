@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { clipTurnText, collectTurns, dropProgressNotes, renderConversation, type Turn } from "../src/conversation.ts";
+import { clipTurnText, collectTurns, dropProgressNotes, prepareConversation, renderConversation, type Turn } from "../src/conversation.ts";
 
 function messageEntry(role: string, content: unknown): SessionEntry {
   return { type: "message", id: "id", parentId: null, timestamp: "", message: { role, content } } as unknown as SessionEntry;
@@ -102,4 +102,47 @@ test("the newest turn is kept even when it alone is over budget", () => {
   );
   assert.ok(rendered.includes("Agent: zzz"));
   assert.ok(rendered.length <= 1_100);
+});
+
+function userImageEntry(text: string): SessionEntry {
+  return messageEntry("user", [
+    { type: "image", data: "...", mimeType: "image/png" },
+    ...(text ? [{ type: "text", text }] : []),
+  ]);
+}
+
+test("prepareConversation reports what the model does not get", () => {
+  const entries = [
+    messageEntry("user", "goal"),
+    messageEntry("assistant", "a".repeat(9_000)),
+    userImageEntry("look at this"),
+    messageEntry("assistant", "I see text only."),
+    userImageEntry(""),
+    messageEntry("assistant", "done"),
+  ];
+  const prepared = prepareConversation(entries, 120_000);
+  assert.equal(prepared.messageCount, 5);
+  assert.deepEqual(prepared.warnings, [
+    "1 message is longer than 8000 characters. The model gets only the start and the end of it.",
+    "2 user messages contain images. The model does not see images.",
+  ]);
+});
+
+test("prepareConversation counts the messages that fit the budget", () => {
+  const entries = [messageEntry("user", "first goal")];
+  for (let index = 0; index < 40; index++) {
+    entries.push(messageEntry("user", `question ${index} ${"q".repeat(100)}`));
+    entries.push(messageEntry("assistant", `answer ${index} ${"a".repeat(100)}`));
+  }
+  const prepared = prepareConversation(entries, 1_500);
+  assert.ok(prepared.text.includes("[…older turns omitted…]"));
+  assert.ok(prepared.messageCount < 81);
+  assert.equal(prepared.warnings.length, 1);
+  assert.match(prepared.warnings[0] ?? "", /^The conversation is larger than maxInputChars \(1500\)\. The model gets the first message and the newest \d+ messages\. \d+ older messages are left out\.$/);
+});
+
+test("prepareConversation gives no warning when nothing is lost", () => {
+  const prepared = prepareConversation([messageEntry("user", "hi"), messageEntry("assistant", "hello")], 120_000);
+  assert.deepEqual(prepared.warnings, []);
+  assert.equal(prepared.messageCount, 2);
 });

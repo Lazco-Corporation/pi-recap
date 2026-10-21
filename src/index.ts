@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { loadSettings, type Settings, thinkingFor } from "./config.ts";
-import { collectTurns, renderConversation } from "./conversation.ts";
-import { chooseModel, composePrompt, generateMarkdown, type ModelChoice, renderPrompt, statusLine } from "./generate.ts";
+import { prepareConversation } from "./conversation.ts";
+import { chooseModel, composePrompt, generateMarkdown, renderPrompt, statusLine, unknownPlaceholders } from "./generate.ts";
 import { ResultPopup } from "./popup.ts";
 
 /**
@@ -66,8 +66,8 @@ async function runDigestCommand(
     return;
   }
 
-  const turns = collectTurns(ctx.sessionManager.getBranch());
-  if (turns.length === 0) {
+  const conversation = prepareConversation(ctx.sessionManager.getBranch(), settings.maxInputChars);
+  if (conversation.messageCount === 0) {
     ctx.ui.notify("The conversation is empty.", "info");
     return;
   }
@@ -78,47 +78,68 @@ async function runDigestCommand(
     return;
   }
 
-  const prompt = renderPrompt(composePrompt(command.kind, settings, args), {
-    conversation: renderConversation(turns, settings.maxInputChars),
+  const template = composePrompt(command.kind, settings, args);
+  const variables = {
+    conversation: conversation.text,
     status: statusLine(ctx.isIdle()),
     sessionName: ctx.sessionManager.getSessionName() ?? "(none)",
     cwd: ctx.cwd,
     language: settings.language ?? "",
-  });
+  };
+  const unknown = unknownPlaceholders(template, variables);
 
-  const thinking = thinkingFor(command.kind, settings);
-  if (ctx.mode === "tui") await showResultPopup(ctx, command.title, thinking, choice, prompt, turns.length);
-  else await notifyResult(ctx, thinking, choice, prompt, turns.length);
+  // Everything the user did not expect, in the order it happened: the model, the conversation, then the prompt.
+  const warnings = [
+    ...(choice.warning ? [choice.warning] : []),
+    ...conversation.warnings,
+    ...(unknown.length > 0 ? [`The prompt has an unknown placeholder: ${unknown.join(", ")}. The model got it as written.`] : []),
+  ];
+
+  const job: DigestJob = {
+    title: command.title,
+    thinking: thinkingFor(command.kind, settings),
+    model: choice.model,
+    prompt: renderPrompt(template, variables),
+    messageCount: conversation.messageCount,
+    warnings,
+  };
+  if (ctx.mode === "tui") await showResultPopup(ctx, job);
+  else await notifyResult(ctx, job);
 }
 
-async function notifyResult(
-  ctx: ExtensionCommandContext,
-  thinking: ModelThinkingLevel,
-  choice: ModelChoice,
-  prompt: string,
-  messageCount: number,
-): Promise<void> {
-  ctx.ui.notify(`Reading ${messageCount} messages with ${choice.model.id}…`, "info");
-  if (choice.warning) ctx.ui.notify(choice.warning, "warning");
+interface DigestJob {
+  title: string;
+  thinking: ModelThinkingLevel;
+  model: Model<Api>;
+  prompt: string;
+  messageCount: number;
+  warnings: string[];
+}
+
+const CUT_OFF_WARNING = "The model stopped at its output limit. The text can end early.";
+
+async function notifyResult(ctx: ExtensionCommandContext, job: DigestJob): Promise<void> {
+  ctx.ui.notify(`Reading ${job.messageCount} messages with ${job.model.id}…`, "info");
+  for (const warning of job.warnings) ctx.ui.notify(warning, "warning");
 
   try {
     // RPC has no cancel key for a running command, so the call always runs to the end.
-    const result = await generateMarkdown(choice.model, prompt, ctx, { thinking, signal: new AbortController().signal });
-    if (result.kind === "text") ctx.ui.notify(result.markdown, "info");
-    else if (result.kind === "error") ctx.ui.notify(result.message, "error");
+    const result = await generateMarkdown(job.model, job.prompt, ctx, {
+      thinking: job.thinking,
+      signal: new AbortController().signal,
+    });
+    if (result.kind === "text") {
+      if (result.cutOff) ctx.ui.notify(CUT_OFF_WARNING, "warning");
+      ctx.ui.notify(result.markdown, "info");
+    } else if (result.kind === "error") {
+      ctx.ui.notify(result.message, "error");
+    }
   } catch (error) {
     ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
   }
 }
 
-async function showResultPopup(
-  ctx: ExtensionCommandContext,
-  title: string,
-  thinking: ModelThinkingLevel,
-  choice: ModelChoice,
-  prompt: string,
-  messageCount: number,
-): Promise<void> {
+async function showResultPopup(ctx: ExtensionCommandContext, job: DigestJob): Promise<void> {
   const controller = new AbortController();
 
   await ctx.ui.custom<void>(
@@ -127,9 +148,10 @@ async function showResultPopup(
         tui,
         theme,
         keybindings,
-        title,
-        subtitle: choice.model.id,
-        loadingMessage: `Reading ${messageCount} messages…`,
+        title: job.title,
+        subtitle: job.model.id,
+        loadingMessage: `Reading ${job.messageCount} messages…`,
+        warnings: job.warnings,
         onClose: () => {
           controller.abort();
           done();
@@ -138,15 +160,22 @@ async function showResultPopup(
 
       const fillPopup = async () => {
         try {
-          const result = await generateMarkdown(choice.model, prompt, ctx, {
-            thinking,
+          const result = await generateMarkdown(job.model, job.prompt, ctx, {
+            thinking: job.thinking,
             signal: controller.signal,
+            onThinking: (thinking) => {
+              if (!controller.signal.aborted) popup.showThinking(thinking);
+            },
             onText: (markdown) => {
-              if (!controller.signal.aborted) popup.showPartialText(markdown, choice.warning);
+              if (!controller.signal.aborted) popup.showPartialText(markdown);
             },
           });
-          if (result.kind === "text") popup.showText(result.markdown, choice.warning);
-          else if (result.kind === "error") popup.showError(result.message);
+          if (result.kind === "text") {
+            if (result.cutOff) popup.addWarning(CUT_OFF_WARNING);
+            popup.showText(result.markdown);
+          } else if (result.kind === "error") {
+            popup.showError(result.message);
+          }
         } catch (error) {
           if (controller.signal.aborted) return;
           popup.showError(error instanceof Error ? error.message : String(error));
