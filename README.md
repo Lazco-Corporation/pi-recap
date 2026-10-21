@@ -106,7 +106,7 @@ The top right corner of the popup shows the name of the model that wrote the tex
 A warning at the top of the popup tells you what the model did not get, so you can tell a thin result from a thin conversation.
 The popup shows a warning when:
 
-- the conversation is larger than `maxInputChars`, with the count of older messages that are left out
+- the conversation is larger than `maxInputChars`, with the count of older messages that are left out and the count of older user messages that stay
 - a message is longer than 20000 characters, so the model gets only its start and its end
 - a user message contains an image, which the model does not see
 - the configured model is not available, so the session model wrote the text
@@ -181,7 +181,7 @@ If the file has bad JSON or a bad field, the command shows an error and stops.
 - **Progress notes are dropped.** When the agent writes several messages in one turn, its short messages before the last one, such as "Now I run the tests", are left out. A message of 300 characters or more stays, so a report followed by a short notice is not lost. The turn after your newest message is kept whole.
 - **Skills show as commands.** A skill run shows to the model as the command that you typed, for example `/skill:<name> <args>`.
 - **No unfinished replies.** While the agent works, its unfinished reply is not in the conversation. The recap then only says what the agent works on.
-- **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message and the newest messages. The decisions in the middle of the chat are then missing from the summary, so raise `maxInputChars` when the warning shows. A message longer than 20000 characters keeps only its start and its end.
+- **Long conversations are cut.** Past `maxInputChars`, the model gets the first user message, the newest messages, and from the part between them only your messages, each cut to 1000 characters. The agent replies in that part are left out, so the reasons behind the decisions there can be missing from the summary. Raise `maxInputChars` when the warning shows. A message longer than 20000 characters keeps only its start and its end.
 - **Each run costs tokens.** Each run is a new model call with no prompt cache.
 - **Nothing is saved.** Press `c` before you close the popup to keep the text.
 

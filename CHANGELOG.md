@@ -31,6 +31,8 @@ The newest release is at the top.
 - `maxInputChars` defaults to `240000`, up from `120000`.
   Past the budget, the middle of the chat is left out, and the decisions in it are missing from the summary.
   The new default fits every session in our tests.
+- Past `maxInputChars`, your messages from the part that is left out stay, each cut to 1000 characters, so the model still sees what you asked for and decided there.
+  They take at most a quarter of the budget.
 - A message keeps up to 20000 characters before it is cut in the middle, up from 8000, so a long agent report with tables stays whole.
 
 ### Fixed

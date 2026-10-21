@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { clipTurnText, collectTurns, dropProgressNotes, prepareConversation, renderConversation, type Turn } from "../src/conversation.ts";
+import {
+  clipTurnText,
+  collectTurns,
+  dropProgressNotes,
+  prepareConversation,
+  renderConversation,
+  renderTurns,
+  type Turn,
+} from "../src/conversation.ts";
 
 function messageEntry(role: string, content: unknown): SessionEntry {
   return { type: "message", id: "id", parentId: null, timestamp: "", message: { role, content } } as unknown as SessionEntry;
@@ -83,13 +91,34 @@ test("the whole conversation is kept when it fits", () => {
   assert.equal(renderConversation(turns.slice(0, 2), 10_000), `User: first goal\n\nAgent: ${turns[1]?.text}`);
 });
 
-test("over budget, the first user turn and the newest turns are kept", () => {
-  const rendered = renderConversation(turns, 1_000);
-  assert.ok(rendered.length <= 1_000);
-  assert.ok(rendered.startsWith("User: first goal"));
-  assert.ok(rendered.includes("[…older turns omitted…]"));
-  assert.ok(rendered.includes("turn 49"));
-  assert.ok(!rendered.includes("turn 0 "));
+test("over budget, the first user turn, the older user turns, and the newest turns are kept", () => {
+  const rendered = renderTurns(turns, 1_000);
+  assert.ok(rendered.text.length <= 1_000);
+  assert.ok(rendered.text.startsWith("User: first goal"));
+  assert.match(rendered.text, /\[…\d+ older turns omitted\. Some of the User messages from that part follow, without the Agent replies to them…\]/);
+  assert.ok(rendered.text.includes("[…the newest turns follow…]"));
+  assert.ok(rendered.text.includes("turn 49"));
+  assert.ok(!rendered.text.includes("turn 0 "));
+  // The older part holds user turns only, and the newest turns hold both roles.
+  const olderPart = rendered.text.split("[…the newest turns follow…]")[0] ?? "";
+  assert.ok(olderPart.includes("User: turn 4"));
+  assert.ok(!olderPart.includes("Agent:"));
+  assert.ok(rendered.keptOlderUserTurns > 0);
+  assert.equal(rendered.keptTurns + rendered.keptOlderUserTurns + rendered.omittedTurns, turns.length);
+});
+
+test("over budget with no older user turns, the old marker is used", () => {
+  const oneRun: Turn[] = [{ role: "user", text: "goal" }, ...Array.from({ length: 20 }, (): Turn => ({ role: "assistant", text: "z".repeat(100) }))];
+  const rendered = renderTurns(oneRun, 800);
+  assert.ok(rendered.text.includes("[…older turns omitted…]"));
+  assert.equal(rendered.keptOlderUserTurns, 0);
+  assert.ok(rendered.text.length <= 800);
+});
+
+test("when every older user turn fits, the marker says so", () => {
+  const rendered = renderTurns(turns, 4_000);
+  assert.match(rendered.text, /\[…\d+ older turns omitted\. The User messages from that part follow/);
+  assert.ok(rendered.text.length <= 4_000);
 });
 
 test("the newest turn is kept even when it alone is over budget", () => {
@@ -135,10 +164,10 @@ test("prepareConversation counts the messages that fit the budget", () => {
     entries.push(messageEntry("assistant", `answer ${index} ${"a".repeat(100)}`));
   }
   const prepared = prepareConversation(entries, 1_500);
-  assert.ok(prepared.text.includes("[…older turns omitted…]"));
+  assert.ok(prepared.text.includes("older turns omitted"));
   assert.ok(prepared.messageCount < 81);
   assert.equal(prepared.warnings.length, 1);
-  assert.match(prepared.warnings[0] ?? "", /^The conversation is larger than maxInputChars \(1500\)\. The model gets the first message and the newest \d+ messages\. \d+ older messages are left out\.$/);
+  assert.match(prepared.warnings[0] ?? "", /^The conversation is larger than maxInputChars \(1500\)\. The model gets the first message, \d+ older user messages, and the newest \d+ messages\. \d+ older messages are left out\.$/);
 });
 
 test("prepareConversation gives no warning when nothing is lost", () => {

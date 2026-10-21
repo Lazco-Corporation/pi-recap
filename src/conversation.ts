@@ -127,11 +127,25 @@ export function dropProgressNotes(turns: readonly Turn[]): Turn[] {
 
 export interface RenderedConversation {
   text: string;
-  /** Turns that are in the text, whole or clipped. */
+  /** Turns that are in the text whole or clipped, the user turns of the older part not counted. */
   keptTurns: number;
+  /** User turns of the older part that are in the text, without the agent replies to them. */
+  keptOlderUserTurns: number;
   /** Turns that did not fit the budget. */
   omittedTurns: number;
 }
+
+/**
+ * A user turn in the older part is kept for what the user asked and decided, not for a pasted log.
+ * This cap holds the whole of most user turns and the intent of a paste.
+ */
+const OLDER_USER_TURN_CHARS = 1_000;
+
+/** The older part can take at most this share of the budget, so the newest turns always get the rest. */
+const OLDER_USER_SHARE = 1 / 4;
+
+/** Room for the two markers around the older part, with their joins. */
+const MARKER_RESERVE = 170;
 
 /**
  * Render turns as a transcript that fits inside `maxChars`.
@@ -139,40 +153,79 @@ export interface RenderedConversation {
  * The first user turn always stays, because it says what the session is for.
  * The rest of the budget fills from the newest turn backwards,
  * because the current state matters most for both a recap and a summary.
+ * From the older part that does not fit, the user turns stay without the agent replies,
+ * because they hold what the user asked for and decided, at a small cost.
  */
 export function renderTurns(allTurns: readonly Turn[], maxChars: number): RenderedConversation {
   const turns = dropProgressNotes(allTurns);
-  if (turns.length === 0) return { text: "", keptTurns: 0, omittedTurns: 0 };
+  if (turns.length === 0) return { text: "", keptTurns: 0, keptOlderUserTurns: 0, omittedTurns: 0 };
 
   const lines = turns.map((turn) => `${turn.role === "user" ? "User" : "Agent"}: ${turn.text}`);
   const whole = lines.join("\n\n");
-  if (whole.length <= maxChars) return { text: whole, keptTurns: turns.length, omittedTurns: 0 };
+  if (whole.length <= maxChars) return { text: whole, keptTurns: turns.length, keptOlderUserTurns: 0, omittedTurns: 0 };
 
   const firstUserIndex = turns.findIndex((turn) => turn.role === "user");
   const head = firstUserIndex >= 0 ? clipTurnText(lines[firstUserIndex] ?? "", Math.floor(maxChars / 4)) : "";
+  // Two newlines join each pair of parts.
+  const cost = (line: string) => line.length + 2;
+
+  // The user turns after the first one, as they would show in the older part.
+  const olderUserLine = (index: number) => clipTurnText(lines[index] ?? "", OLDER_USER_TURN_CHARS);
+  const userIndexes = turns.map((_, index) => index).filter((index) => index > firstUserIndex && turns[index]?.role === "user");
+  const olderUserBudget = Math.min(
+    Math.floor(maxChars * OLDER_USER_SHARE),
+    userIndexes.reduce((sum, index) => sum + cost(olderUserLine(index)), 0),
+  );
 
   const tail: string[] = [];
-  let used = head.length + OMITTED_MARKER.length + 4;
+  let tailStart = lines.length;
+  let used = head.length + MARKER_RESERVE;
   for (let index = lines.length - 1; index > firstUserIndex; index--) {
     const line = lines[index] ?? "";
-    // Two newlines join each pair of turns.
-    const cost = line.length + 2;
-    if (used + cost > maxChars) break;
+    if (used + cost(line) > maxChars - olderUserBudget) break;
     tail.unshift(line);
-    used += cost;
+    tailStart = index;
+    used += cost(line);
   }
 
   // The newest turn matters most, so it stays even when it alone is over the budget.
   const newestIndex = lines.length - 1;
   if (tail.length === 0 && newestIndex > firstUserIndex) {
-    tail.push(clipTurnText(lines[newestIndex] ?? "", Math.max(200, maxChars - used)));
+    tail.push(clipTurnText(lines[newestIndex] ?? "", Math.max(200, maxChars - olderUserBudget - used)));
+    tailStart = newestIndex;
+    used = maxChars - olderUserBudget;
   }
+
+  // The newest user turns of the older part first: they are closest to the current state.
+  const olderUser: string[] = [];
+  const olderUserCandidates = userIndexes.filter((index) => index < tailStart);
+  for (const index of [...olderUserCandidates].reverse()) {
+    const line = olderUserLine(index);
+    if (used + cost(line) > maxChars) break;
+    olderUser.unshift(line);
+    used += cost(line);
+  }
+
+  const omittedTurns = tailStart - firstUserIndex - 1;
+  const allOlderUsersKept = olderUser.length === olderUserCandidates.length;
+  const parts = [head];
+  if (olderUser.length > 0) {
+    parts.push(
+      `[…${omittedTurns} older turns omitted. ${allOlderUsersKept ? "The" : "Some of the"} User messages from that part follow, without the Agent replies to them…]`,
+      ...olderUser,
+      "[…the newest turns follow…]",
+    );
+  } else {
+    parts.push(OMITTED_MARKER);
+  }
+  parts.push(...tail);
 
   const keptTurns = tail.length + (head.length > 0 ? 1 : 0);
   return {
-    text: [head, OMITTED_MARKER, ...tail].filter((part) => part.length > 0).join("\n\n"),
+    text: parts.filter((part) => part.length > 0).join("\n\n"),
     keptTurns,
-    omittedTurns: turns.length - keptTurns,
+    keptOlderUserTurns: olderUser.length,
+    omittedTurns: omittedTurns - olderUser.length,
   };
 }
 
@@ -190,8 +243,9 @@ export function prepareConversation(entries: readonly SessionEntry[], maxChars: 
   const rendered = renderTurns(collected.turns, maxChars);
   const warnings: string[] = [];
   if (rendered.omittedTurns > 0) {
+    const olderUsers = rendered.keptOlderUserTurns > 0 ? `, ${plural(rendered.keptOlderUserTurns, "older user message")},` : "";
     warnings.push(
-      `The conversation is larger than maxInputChars (${maxChars}). The model gets the first message and the newest ${plural(rendered.keptTurns - 1, "message")}. ${plural(rendered.omittedTurns, "older message")} ${rendered.omittedTurns === 1 ? "is" : "are"} left out.`,
+      `The conversation is larger than maxInputChars (${maxChars}). The model gets the first message${olderUsers} and the newest ${plural(rendered.keptTurns - 1, "message")}. ${plural(rendered.omittedTurns, "older message")} ${rendered.omittedTurns === 1 ? "is" : "are"} left out.`,
     );
   }
   if (collected.clippedTurns > 0) {
