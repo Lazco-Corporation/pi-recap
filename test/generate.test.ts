@@ -28,16 +28,16 @@ for (const [name, template] of [
 
 test("buildDefaultPrompt sets the language rule when language is provided", () => {
   const recap = buildDefaultPrompt("recap", "Traditional Chinese");
-  assert.ok(recap.includes("Write the whole reply in Traditional Chinese, including every label and heading."));
+  assert.ok(recap.includes("Write everything in Traditional Chinese."));
   assert.ok(!recap.includes("language of the User messages"));
 
   const summary = buildDefaultPrompt("summary", "Traditional Chinese");
-  assert.ok(summary.includes("Write the whole reply in Traditional Chinese, including every label and heading."));
+  assert.ok(summary.includes("Write everything in Traditional Chinese."));
 });
 
 for (const kind of ["recap", "summary"] as const) {
   test(`the default ${kind} prompt ends with the language rule`, () => {
-    assert.match(buildDefaultPrompt(kind, "Japanese"), /- Write the whole reply in Japanese, including every label and heading\.$/);
+    assert.match(buildDefaultPrompt(kind, "Japanese"), /- Write everything in Japanese\. Translate all labels and headings to Japanese too\.$/);
   });
 
   test(`the default ${kind} prompt tells the model to report the latest state`, () => {
@@ -45,8 +45,13 @@ for (const kind of ["recap", "summary"] as const) {
   });
 }
 
+// Small models copy an English label or heading as it is, even when the language rule says to translate it.
 test("the recap prompt has no English label for the model to copy", () => {
   assert.doesNotMatch(RECAP_PROMPT, /\*\*(Goal|Now|Your turn):\*\*/);
+});
+
+test("the summary prompt has no English heading for the model to copy", () => {
+  assert.doesNotMatch(SUMMARY_PROMPT, /^- (Goal|Decisions|Done|Current state|Open questions|Next steps):/m);
 });
 
 test("composePrompt appends appendPrompt, command-specific append, and args", () => {
@@ -57,7 +62,7 @@ test("composePrompt appends appendPrompt, command-specific append, and args", ()
     recapAppendPrompt: "Two lines maximum.",
   };
   const prompt = composePrompt("recap", settings, "Focus on files.");
-  assert.ok(prompt.includes("Write the whole reply in Japanese"));
+  assert.ok(prompt.includes("Write everything in Japanese."));
   assert.ok(prompt.includes("- Note the git commit hash."));
   assert.ok(prompt.includes("- Two lines maximum."));
   assert.ok(prompt.includes("- Focus on files."));

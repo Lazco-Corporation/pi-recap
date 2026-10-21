@@ -17,7 +17,8 @@ const THINKING_LEVELS: readonly ModelThinkingLevel[] = ["off", "minimal", "low",
 export interface Settings {
   /** `"provider/modelId"`, or null to use the model the session runs. */
   model: string | null;
-  thinking: ModelThinkingLevel;
+  /** One level for both commands, or null for the level each command picks. See `DEFAULT_THINKING`. */
+  thinking: ModelThinkingLevel | null;
   /** Cap on the conversation text handed to the model. */
   maxInputChars: number;
   /**
@@ -47,8 +48,7 @@ export interface Settings {
 export function defaultSettings(): Settings {
   return {
     model: null,
-    // At "low", small models list to-dos that a later message already finished.
-    thinking: "medium",
+    thinking: null,
     maxInputChars: 120_000,
     language: null,
     appendPrompt: null,
@@ -76,7 +76,20 @@ function modelField(value: unknown): string | null {
   return trimmed;
 }
 
-function thinkingField(value: unknown, fallback: ModelThinkingLevel): ModelThinkingLevel {
+/**
+ * At "low", small models put to-dos that a later message finished into a summary, and "medium" fixes that.
+ * A recap is three lines about the newest state, and "low" is as accurate there and faster.
+ */
+export const DEFAULT_THINKING: Readonly<Record<"recap" | "summary", ModelThinkingLevel>> = {
+  recap: "low",
+  summary: "medium",
+};
+
+export function thinkingFor(kind: "recap" | "summary", settings: Settings): ModelThinkingLevel {
+  return settings.thinking ?? DEFAULT_THINKING[kind];
+}
+
+function thinkingField(value: unknown, fallback: ModelThinkingLevel | null): ModelThinkingLevel | null {
   if (value === undefined || value === null) return fallback;
   if (typeof value !== "string" || !THINKING_LEVELS.includes(value as ModelThinkingLevel)) {
     throw new SettingsError(`"thinking" must be one of ${THINKING_LEVELS.join(", ")}`);

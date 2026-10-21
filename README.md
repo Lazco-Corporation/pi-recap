@@ -50,7 +50,9 @@ In a pi session that has messages, type one of the two commands:
 
 A popup opens over the chat.
 A spinner shows while the model reads the conversation.
+The text shows as the model writes it.
 Press `Esc` to close the popup.
+If the model still writes, `Esc` also stops it.
 The text does not go into the session.
 
 The text uses the language of your newest message.
@@ -92,7 +94,7 @@ The model leaves out a section that has nothing to say.
 | `↑` `↓` `j` `k`, mouse wheel | Scroll one line |
 | `PgUp` `PgDn` `Space` | Scroll one page |
 | `Home` `End` `g` `G` | Go to the top or the bottom |
-| `c` | Copy the text as Markdown |
+| `c` | Copy the text as Markdown, after the model finishes |
 | `Esc` `Enter` `q` | Close the popup |
 
 `Esc` during loading also stops the model call.
@@ -131,7 +133,7 @@ This example sends the call to a smaller model and sets the output language:
 | Field | Default | Value |
 | --- | --- | --- |
 | `model` | `null` | `"<provider>/<model-id>"`, or `null` for the session model |
-| `thinking` | `"medium"` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` |
+| `thinking` | `null` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max` for both commands, or `null` for `low` in `/recap` and `medium` in `/summary` |
 | `maxInputChars` | `120000` | The max size of the conversation text, from 1000 to 2000000 |
 | `language` | `null` | The output language, for example `"Traditional Chinese"`, or `null` to match your messages |
 

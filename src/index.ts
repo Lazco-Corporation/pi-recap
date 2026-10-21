@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { loadSettings, type Settings } from "./config.ts";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { loadSettings, type Settings, thinkingFor } from "./config.ts";
 import { collectTurns, renderConversation } from "./conversation.ts";
 import { chooseModel, composePrompt, generateMarkdown, type ModelChoice, renderPrompt } from "./generate.ts";
 import { ResultPopup } from "./popup.ts";
@@ -87,13 +88,14 @@ async function runDigestCommand(
     language: settings.language ?? "",
   });
 
-  if (ctx.mode === "tui") await showResultPopup(ctx, command.title, settings, choice, prompt, turns.length);
-  else await notifyResult(ctx, settings, choice, prompt, turns.length);
+  const thinking = thinkingFor(command.kind, settings);
+  if (ctx.mode === "tui") await showResultPopup(ctx, command.title, thinking, choice, prompt, turns.length);
+  else await notifyResult(ctx, thinking, choice, prompt, turns.length);
 }
 
 async function notifyResult(
   ctx: ExtensionCommandContext,
-  settings: Settings,
+  thinking: ModelThinkingLevel,
   choice: ModelChoice,
   prompt: string,
   messageCount: number,
@@ -103,7 +105,7 @@ async function notifyResult(
 
   try {
     // RPC has no cancel key for a running command, so the call always runs to the end.
-    const result = await generateMarkdown(choice.model, settings, prompt, ctx, new AbortController().signal);
+    const result = await generateMarkdown(choice.model, prompt, ctx, { thinking, signal: new AbortController().signal });
     if (result.kind === "text") ctx.ui.notify(result.markdown, "info");
     else if (result.kind === "error") ctx.ui.notify(result.message, "error");
   } catch (error) {
@@ -114,7 +116,7 @@ async function notifyResult(
 async function showResultPopup(
   ctx: ExtensionCommandContext,
   title: string,
-  settings: Settings,
+  thinking: ModelThinkingLevel,
   choice: ModelChoice,
   prompt: string,
   messageCount: number,
@@ -138,7 +140,13 @@ async function showResultPopup(
 
       const fillPopup = async () => {
         try {
-          const result = await generateMarkdown(choice.model, settings, prompt, ctx, controller.signal);
+          const result = await generateMarkdown(choice.model, prompt, ctx, {
+            thinking,
+            signal: controller.signal,
+            onText: (markdown) => {
+              if (!controller.signal.aborted) popup.showPartialText(markdown, choice.warning);
+            },
+          });
           if (result.kind === "text") popup.showText(result.markdown, choice.warning);
           else if (result.kind === "error") popup.showError(result.message);
         } catch (error) {

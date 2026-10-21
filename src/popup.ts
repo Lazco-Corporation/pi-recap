@@ -31,7 +31,7 @@ const NOTICE_DURATION_MS = 1_500;
 
 type PopupState =
   | { kind: "loading"; message: string }
-  | { kind: "text"; source: string; markdown: Markdown; warning?: string }
+  | { kind: "text"; source: string; markdown: Markdown; warning?: string; streaming: boolean }
   | { kind: "error"; message: string };
 
 export interface ResultPopupOptions {
@@ -77,15 +77,33 @@ export class ResultPopup implements Component {
     }, SPINNER_INTERVAL_MS);
   }
 
+  /** Show the text so far while the model still writes. The spinner keeps going under it. */
+  showPartialText(markdownText: string, warning?: string): void {
+    this.setText(markdownText, warning, true);
+  }
+
   showText(markdownText: string, warning?: string): void {
     this.stopSpinner();
-    this.state = {
-      kind: "text",
-      source: markdownText,
-      markdown: new Markdown(markdownText, 0, 0, getMarkdownTheme(), undefined, { transform: addEmphasisMarkers }),
-      warning,
-    };
-    this.scrollTop = 0;
+    this.setText(markdownText, warning, false);
+  }
+
+  private setText(markdownText: string, warning: string | undefined, streaming: boolean): void {
+    if (this.state.kind === "text") {
+      // The same Markdown object keeps its place, so the scroll position survives each update.
+      this.state.markdown.setText(markdownText);
+      this.state.source = markdownText;
+      this.state.warning = warning;
+      this.state.streaming = streaming;
+    } else {
+      this.state = {
+        kind: "text",
+        source: markdownText,
+        markdown: new Markdown(markdownText, 0, 0, getMarkdownTheme(), undefined, { transform: addEmphasisMarkers }),
+        warning,
+        streaming,
+      };
+      this.scrollTop = 0;
+    }
     this.tui.requestRender();
   }
 
@@ -112,7 +130,7 @@ export class ResultPopup implements Component {
       this.scrollBy(-this.contentHeight);
     } else if (matchesKey(data, "end") || data === "G") {
       this.scrollBy(this.contentHeight);
-    } else if (data === "c" && this.state.kind === "text") {
+    } else if (data === "c" && this.state.kind === "text" && !this.state.streaming) {
       void this.copy(this.state.source);
     }
   }
@@ -172,6 +190,7 @@ export class ResultPopup implements Component {
         return wrapTextWithAnsi(theme.fg("error", this.state.message), innerWidth);
       case "text": {
         const lines = this.state.markdown.render(innerWidth).map(removeEmphasisMarkers);
+        if (this.state.streaming) lines.push("", theme.fg("accent", SPINNER_FRAMES[this.spinnerFrame] ?? ""));
         if (!this.state.warning) return lines;
         return [...wrapTextWithAnsi(theme.fg("warning", this.state.warning), innerWidth), "", ...lines];
       }
@@ -198,14 +217,15 @@ export class ResultPopup implements Component {
     const theme = this.theme;
     const hint = (keys: string, action: string) => `${theme.fg("dim", keys)} ${theme.fg("muted", action)}`;
     if (this.state.kind === "loading") return hint("esc", "cancel");
+    const streaming = this.state.kind === "text" && this.state.streaming;
 
     const scrollable = this.contentHeight > this.viewportHeight;
     const position = scrollable
       ? theme.fg("dim", `${this.scrollTop + 1}-${this.scrollTop + this.viewportHeight} of ${this.contentHeight}`)
       : "";
     const separator = theme.fg("dim", "  ·  ");
-    const close = hint("esc", "close");
-    const copy = this.state.kind === "text" ? [hint("c", "copy")] : [];
+    const close = hint("esc", streaming ? "cancel" : "close");
+    const copy = this.state.kind === "text" && !streaming ? [hint("c", "copy")] : [];
     const scroll = hint("↑↓", "scroll");
     // Hints drop from the least needed, so the scroll position stays visible in a narrow terminal.
     const candidates = scrollable

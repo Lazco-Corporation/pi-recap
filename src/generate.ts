@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Settings, splitModelRef } from "./config.ts";
 
@@ -13,12 +13,11 @@ The messages are in time order, oldest first.
 {{conversation}}
 </conversation>`;
 
-/** Last in the rules, because small models skip the language rule more often when it comes first. */
 function languageRule(language: string | null): string {
   if (language && language.trim().length > 0) {
-    return `- Write the whole reply in ${language.trim()}, including every label and heading.`;
+    return `- Write everything in ${language.trim()}. Translate all labels and headings to ${language.trim()} too.`;
   }
-  return "- Write the whole reply in the language of the User messages, including every label and heading. If they use more than one language, use the language of the newest User message.";
+  return "- Write in the language of the User messages. If they use more than one language, use the language of the newest User message. Translate the labels and headings too.";
 }
 
 /**
@@ -62,13 +61,13 @@ ${commonRules(language)}`;
 
 Write a summary of this session. A person who never saw the chat must be able to continue the work from it.
 
-Use these sections, as Markdown "##" headings:
-- Goal: what the user wants, and the scope.
-- Decisions: each decision, with its reason.
-- Done: finished work, with the files and commands that the conversation names.
-- Current state: where the work stands. {{status}}
-- Open questions: questions and choices that nobody answered yet, actions that wait on the user or on another person, and risks or limits that the agent warned about.
-- Next steps: what must happen next, in order. Only steps that are not done yet.
+Use these sections, in this order. Start each one with a Markdown "##" heading in the output language.
+1. Heading that means "Goal": what the user wants, and the scope.
+2. Heading that means "Decisions": each decision, with its reason.
+3. Heading that means "Done": finished work, with the files and commands that the conversation names.
+4. Heading that means "Current state": where the work stands. {{status}}
+5. Heading that means "Open questions": questions and choices that nobody answered yet, actions that wait on the user or on another person, and risks or limits that the agent warned about.
+6. Heading that means "Next steps": what must happen next, in order. Only steps that are not done yet.
 
 Rules:
 - Use bullets inside the sections.
@@ -151,32 +150,48 @@ export function chooseModel(settings: Settings, context: ExtensionContext): Mode
 
 export type GenerateResult = { kind: "text"; markdown: string } | { kind: "error"; message: string } | { kind: "aborted" };
 
+export interface GenerateOptions {
+  thinking: ModelThinkingLevel;
+  signal: AbortSignal;
+  /** Called with the whole text so far each time more text arrives. */
+  onText?: (markdown: string) => void;
+}
+
+function joinText(message: AssistantMessage): string {
+  return message.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
+}
+
 export async function generateMarkdown(
   model: Model<Api>,
-  settings: Settings,
   prompt: string,
   context: ExtensionContext,
-  signal: AbortSignal,
+  options: GenerateOptions,
 ): Promise<GenerateResult> {
+  const { thinking, signal, onText } = options;
   const stream = context.modelRegistry.streamSimple(
     model,
     { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
     {
-      reasoning: settings.thinking === "off" ? undefined : settings.thinking,
+      reasoning: thinking === "off" ? undefined : thinking,
       cacheRetention: "none",
       signal,
     },
   );
+  if (onText) {
+    for await (const event of stream) {
+      if (event.type === "text_delta") onText(joinText(event.partial));
+    }
+  }
   const reply = await stream.result();
 
   if (reply.stopReason === "aborted" || signal.aborted) return { kind: "aborted" };
   if (reply.stopReason === "error") return { kind: "error", message: reply.errorMessage ?? "The model request failed." };
 
-  const markdown = reply.content
-    .filter((block): block is { type: "text"; text: string } => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
+  const markdown = joinText(reply);
   if (markdown.length === 0) return { kind: "error", message: "The model returned no text." };
   return { kind: "text", markdown };
 }

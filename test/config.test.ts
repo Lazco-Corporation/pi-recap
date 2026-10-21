@@ -3,7 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { defaultSettings, loadSettings, parseSettings, SETTINGS_FILE, SettingsError, splitModelRef } from "../src/config.ts";
+import {
+  defaultSettings,
+  loadSettings,
+  parseSettings,
+  SETTINGS_FILE,
+  SettingsError,
+  splitModelRef,
+  thinkingFor,
+} from "../src/config.ts";
 
 function withAgentDir(fileContent: string | undefined, check: (agentDir: string) => void): void {
   const agentDir = mkdtempSync(join(tmpdir(), "pi-recap-"));
@@ -91,4 +99,12 @@ test("broken JSON names the file", () => {
       return true;
     });
   });
+});
+
+test("each command picks its own thinking level unless the settings set one", () => {
+  assert.equal(thinkingFor("recap", defaultSettings()), "low");
+  assert.equal(thinkingFor("summary", defaultSettings()), "medium");
+  const fixed = parseSettings({ thinking: "high" });
+  assert.equal(thinkingFor("recap", fixed), "high");
+  assert.equal(thinkingFor("summary", fixed), "high");
 });
