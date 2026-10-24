@@ -2,8 +2,18 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { loadSettings, type Settings, thinkingFor } from "./config.ts";
-import { prepareConversation } from "./conversation.ts";
-import { chooseModel, composePrompt, generateMarkdown, renderPrompt, statusLine, unknownPlaceholders } from "./generate.ts";
+import { buildChatSystemPrompt, DigestChat } from "./chat.ts";
+import { prepareChatConversation, prepareConversation } from "./conversation.ts";
+import {
+  chooseModel,
+  composePrompt,
+  type GenerateResult,
+  generateMarkdown,
+  renderPrompt,
+  singlePromptRequest,
+  statusLine,
+  unknownPlaceholders,
+} from "./generate.ts";
 import { ResultPopup } from "./popup.ts";
 
 /**
@@ -12,6 +22,7 @@ import { ResultPopup } from "./popup.ts";
  * `/recap` is three lines for a user who comes back after a break.
  * `/summary` is a full record that someone else could continue the work from.
  * Neither result enters the session, so the main model sees no extra tokens.
+ * After the result, the user can ask questions about the session in the popup. They stay out of the session too.
  *
  * In RPC mode there is no terminal for the popup, so the result goes to the client as a notification.
  */
@@ -66,7 +77,10 @@ async function runDigestCommand(
     return;
   }
 
-  const conversation = prepareConversation(ctx.sessionManager.getBranch(), settings.maxInputChars);
+  // Questions in the popup read the same moment of the session as the result, even when the agent moves on meanwhile.
+  const entries = ctx.sessionManager.getBranch();
+  const agentWasIdle = ctx.isIdle();
+  const conversation = prepareConversation(entries, settings.maxInputChars);
   if (conversation.messageCount === 0) {
     ctx.ui.notify("The conversation is empty.", "info");
     return;
@@ -81,7 +95,7 @@ async function runDigestCommand(
   const template = composePrompt(command.kind, settings, args);
   const variables = {
     conversation: conversation.text,
-    status: statusLine(ctx.isIdle()),
+    status: statusLine(agentWasIdle),
     sessionName: ctx.sessionManager.getSessionName() ?? "(none)",
     cwd: ctx.cwd,
     language: settings.language ?? "",
@@ -103,8 +117,27 @@ async function runDigestCommand(
     messageCount: conversation.messageCount,
     warnings,
   };
-  if (ctx.mode === "tui") await showResultPopup(ctx, job);
-  else await notifyResult(ctx, job);
+  if (ctx.mode !== "tui") {
+    await notifyResult(ctx, job);
+    return;
+  }
+
+  const sessionName = variables.sessionName;
+  const startChat: StartChat = (digest) => {
+    const chatConversation = prepareChatConversation(entries, settings.maxInputChars);
+    const systemPrompt = buildChatSystemPrompt({
+      conversation: chatConversation.text,
+      kind: command.kind,
+      digest,
+      agentWasIdle,
+      sessionName,
+      cwd: ctx.cwd,
+      language: settings.language,
+    });
+    const chat = new DigestChat({ model: job.model, thinking: job.thinking, context: ctx, systemPrompt });
+    return { chat, warnings: chatConversation.warnings };
+  };
+  await showResultPopup(ctx, job, startChat);
 }
 
 interface DigestJob {
@@ -116,6 +149,9 @@ interface DigestJob {
   warnings: string[];
 }
 
+/** Builds the chat from the result text, the first time the user asks. It also returns what the chat model does not get. */
+type StartChat = (digest: string) => { chat: DigestChat; warnings: string[] };
+
 const CUT_OFF_WARNING = "The model stopped at its output limit. The text can end early.";
 
 async function notifyResult(ctx: ExtensionCommandContext, job: DigestJob): Promise<void> {
@@ -124,8 +160,9 @@ async function notifyResult(ctx: ExtensionCommandContext, job: DigestJob): Promi
 
   try {
     // RPC has no cancel key for a running command, so the call always runs to the end.
-    const result = await generateMarkdown(job.model, job.prompt, ctx, {
+    const result = await generateMarkdown(job.model, singlePromptRequest(job.prompt), ctx, {
       thinking: job.thinking,
+      cacheRetention: "none",
       signal: new AbortController().signal,
     });
     if (result.kind === "text") {
@@ -139,11 +176,59 @@ async function notifyResult(ctx: ExtensionCommandContext, job: DigestJob): Promi
   }
 }
 
-async function showResultPopup(ctx: ExtensionCommandContext, job: DigestJob): Promise<void> {
-  const controller = new AbortController();
+/** Stream one model reply into the newest block of the popup. Returns the text when the reply is complete. */
+async function streamIntoPopup(
+  popup: ResultPopup,
+  signal: AbortSignal,
+  generate: (callbacks: { onThinking: (thinking: string) => void; onText: (markdown: string) => void }) => Promise<GenerateResult>,
+): Promise<string | undefined> {
+  try {
+    const result = await generate({
+      onThinking: (thinking) => {
+        if (!signal.aborted) popup.showThinking(thinking);
+      },
+      onText: (markdown) => {
+        if (!signal.aborted) popup.showPartialText(markdown);
+      },
+    });
+    if (result.kind === "text") {
+      if (result.cutOff) popup.addWarning(CUT_OFF_WARNING);
+      popup.showText(result.markdown);
+      return result.markdown;
+    }
+    if (result.kind === "error") popup.showError(result.message);
+  } catch (error) {
+    if (!signal.aborted) popup.showError(error instanceof Error ? error.message : String(error));
+  }
+  return undefined;
+}
+
+async function showResultPopup(ctx: ExtensionCommandContext, job: DigestJob, startChat: StartChat): Promise<void> {
+  // Closing the popup stops every call. Stopping an answer stops only that answer.
+  const popupController = new AbortController();
+  let answerController: AbortController | undefined;
+  let digest: string | undefined;
+  let chat: DigestChat | undefined;
 
   await ctx.ui.custom<void>(
     (tui, theme, keybindings, done) => {
+      const ask = async (question: string) => {
+        if (digest === undefined) return;
+        if (!chat) {
+          const started = startChat(digest);
+          chat = started.chat;
+          // The first answer shows what the chat model does not get, under its question.
+          for (const warning of started.warnings) popup.addWarning(warning);
+        }
+        const activeChat = chat;
+        const controller = new AbortController();
+        answerController = controller;
+        const signal = AbortSignal.any([popupController.signal, controller.signal]);
+        await streamIntoPopup(popup, signal, (callbacks) => activeChat.ask(question, { signal, ...callbacks }));
+        if (controller.signal.aborted && !popupController.signal.aborted) popup.showStopped();
+        if (answerController === controller) answerController = undefined;
+      };
+
       const popup = new ResultPopup({
         tui,
         theme,
@@ -153,33 +238,23 @@ async function showResultPopup(ctx: ExtensionCommandContext, job: DigestJob): Pr
         loadingMessage: `Reading ${job.messageCount} messages…`,
         warnings: job.warnings,
         onClose: () => {
-          controller.abort();
+          popupController.abort();
           done();
         },
+        onAsk: (question) => void ask(question),
+        onStopAnswer: () => answerController?.abort(),
       });
 
       const fillPopup = async () => {
-        try {
-          const result = await generateMarkdown(job.model, job.prompt, ctx, {
+        const signal = popupController.signal;
+        digest = await streamIntoPopup(popup, signal, (callbacks) =>
+          generateMarkdown(job.model, singlePromptRequest(job.prompt), ctx, {
             thinking: job.thinking,
-            signal: controller.signal,
-            onThinking: (thinking) => {
-              if (!controller.signal.aborted) popup.showThinking(thinking);
-            },
-            onText: (markdown) => {
-              if (!controller.signal.aborted) popup.showPartialText(markdown);
-            },
-          });
-          if (result.kind === "text") {
-            if (result.cutOff) popup.addWarning(CUT_OFF_WARNING);
-            popup.showText(result.markdown);
-          } else if (result.kind === "error") {
-            popup.showError(result.message);
-          }
-        } catch (error) {
-          if (controller.signal.aborted) return;
-          popup.showError(error instanceof Error ? error.message : String(error));
-        }
+            cacheRetention: "none",
+            signal,
+            ...callbacks,
+          }),
+        );
       };
       void fillPopup();
 

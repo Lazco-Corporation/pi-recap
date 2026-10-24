@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, CacheRetention, Message, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Settings, splitModelRef } from "./config.ts";
 
@@ -24,7 +24,7 @@ function languageRule(language: string | null): string {
  * Models tend to repeat a to-do from early in the chat after a later message finished it,
  * and to report work as done when the agent only asked the user to do it.
  */
-const ACCURACY_RULES = `- A later message can finish, cancel, or change what an earlier message said. Always report the latest state.
+export const ACCURACY_RULES = `- A later message can finish, cancel, or change what an earlier message said. Always report the latest state.
 - Before you call something open, waiting, or a next step, check every later message. If one says it is done, cancelled, or decided, it is not open.
 - Call something done only when a message says it is done. When the agent asked the user to do something and no later message confirms it, say that it is not confirmed.
 - Write "all" or "every" only when it is true for each item. Otherwise name the exceptions.
@@ -162,14 +162,33 @@ export function chooseModel(settings: Settings, context: ExtensionContext): Mode
 }
 
 export type GenerateResult =
-  /** `cutOff` is set when the model hit its output limit, so the text can end early. */
-  | { kind: "text"; markdown: string; cutOff: boolean }
+  /**
+   * `cutOff` is set when the model hit its output limit, so the text can end early.
+   * `reply` is the whole model message, for a later turn of a chat.
+   */
+  | { kind: "text"; markdown: string; cutOff: boolean; reply: AssistantMessage }
   | { kind: "error"; message: string }
   | { kind: "aborted" };
+
+/** What goes to the model: the messages, after an optional system prompt. */
+export interface GenerateRequest {
+  systemPrompt?: string;
+  messages: Message[];
+}
+
+/** A one-shot request with the whole prompt in one user message. */
+export function singlePromptRequest(prompt: string): GenerateRequest {
+  return { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] };
+}
 
 export interface GenerateOptions {
   thinking: ModelThinkingLevel;
   signal: AbortSignal;
+  /**
+   * A one-shot call never sends the same prompt again, so a cache only costs more.
+   * A chat sends the same transcript with each question, so a short cache saves each later question from reading it again.
+   */
+  cacheRetention: CacheRetention;
   /** Called with the whole text so far each time more text arrives. */
   onText?: (markdown: string) => void;
   /** Called with the whole thinking so far each time more thinking arrives. Never called when the model shows no thinking. */
@@ -190,20 +209,16 @@ function joinBlocks(message: AssistantMessage, type: "text" | "thinking"): strin
 
 export async function generateMarkdown(
   model: Model<Api>,
-  prompt: string,
+  request: GenerateRequest,
   context: ExtensionContext,
   options: GenerateOptions,
 ): Promise<GenerateResult> {
-  const { thinking, signal, onText, onThinking } = options;
-  const stream = context.modelRegistry.streamSimple(
-    model,
-    { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
-    {
-      reasoning: thinking === "off" ? undefined : thinking,
-      cacheRetention: "none",
-      signal,
-    },
-  );
+  const { thinking, signal, cacheRetention, onText, onThinking } = options;
+  const stream = context.modelRegistry.streamSimple(model, request, {
+    reasoning: thinking === "off" ? undefined : thinking,
+    cacheRetention,
+    signal,
+  });
   if (onText || onThinking) {
     for await (const event of stream) {
       if (event.type === "text_delta") onText?.(joinBlocks(event.partial, "text"));
@@ -217,5 +232,5 @@ export async function generateMarkdown(
 
   const markdown = joinBlocks(reply, "text");
   if (markdown.length === 0) return { kind: "error", message: "The model returned no text." };
-  return { kind: "text", markdown, cutOff: reply.stopReason === "length" };
+  return { kind: "text", markdown, cutOff: reply.stopReason === "length", reply };
 }

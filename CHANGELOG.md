@@ -3,6 +3,21 @@
 All releases of `@lazco/pi-recap` are in this file.
 The newest release is at the top.
 
+## [Unreleased]
+
+### Added
+
+- After the result, press `Tab` to ask a question about the session in the popup.
+  The answer shows under the question, and you can ask more questions.
+  The model gets the conversation with the tool calls of the agent and their results cut short, the result that you read, and the earlier questions and answers.
+  `Esc` stops an answer, and the next question can go out after it.
+  The questions and the answers do not go into the session.
+- A warning under the first question shows how many tool calls lost their result or are left out to fit `maxInputChars`.
+
+### Changed
+
+- `c` copies the newest answer, or the result when there is no answer yet.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added

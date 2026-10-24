@@ -9,6 +9,9 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
  *
  * Everything that is left out against the user's expectation comes back as a warning,
  * so the user can tell a thin result from a thin conversation.
+ *
+ * A question after the result needs details, such as an error message or the file the agent changed.
+ * So the chat transcript also holds the tool calls, with their results cut short.
  */
 
 export interface Turn {
@@ -78,24 +81,110 @@ export interface CollectedTurns {
   userMessagesWithImages: number;
 }
 
-/** Pull user and assistant text out of a session branch, oldest first. */
-export function collectConversation(entries: readonly SessionEntry[]): CollectedTurns {
-  const turns: Turn[] = [];
+/** One tool call of an agent message, as lines for the chat transcript. */
+export interface ToolStep {
+  call: string;
+  /** Undefined while the tool runs, or when the session holds no result for the call. */
+  result?: string;
+}
+
+/** A turn of the chat transcript. Its `text` is the same as in the `/recap` transcript. */
+export interface ChatTurn extends Turn {
+  /** The tool calls of an agent message, oldest first. Always empty for a user turn. */
+  tools: ToolStep[];
+}
+
+/**
+ * The arguments say what the agent touched, such as a path or a command.
+ * The body of a file write or an edit is in the arguments too, and only its start is needed.
+ */
+export const TOOL_ARGUMENTS_CHARS = 300;
+/** Enough for a short command output or the summary line of a test run, which sits at the end. */
+export const TOOL_RESULT_CHARS = 1_500;
+/** An error explains what went wrong, and the user asks about it more often than about a normal output. */
+export const TOOL_ERROR_CHARS = 4_000;
+
+interface ToolCallBlock {
+  type: "toolCall";
+  id?: unknown;
+  name?: unknown;
+  arguments?: unknown;
+}
+
+function toolCallLine(block: ToolCallBlock): string {
+  const name = typeof block.name === "string" ? block.name : "tool";
+  const argumentsText = block.arguments === undefined ? "" : JSON.stringify(block.arguments);
+  const clipped = argumentsText.length > 0 ? ` ${clipTurnText(argumentsText, TOOL_ARGUMENTS_CHARS)}` : "";
+  return `[Tool call] ${name}${clipped}`;
+}
+
+function toolResultLine(content: unknown, isError: boolean): string {
+  const text = extractText(content);
+  if (text.length === 0) return isError ? "[Tool error] (no text)" : "[Tool result] (no text)";
+  return isError
+    ? `[Tool error] ${clipTurnText(text, TOOL_ERROR_CHARS)}`
+    : `[Tool result] ${clipTurnText(text, TOOL_RESULT_CHARS)}`;
+}
+
+interface CollectedChatTurns {
+  turns: ChatTurn[];
+  clippedTurns: number;
+  userMessagesWithImages: number;
+}
+
+/**
+ * One walk over the branch for both transcripts.
+ * The text of each turn comes from the same code, so the chat transcript without its tools is the `/recap` transcript.
+ */
+function walkSession(entries: readonly SessionEntry[]): CollectedChatTurns {
+  const turns: ChatTurn[] = [];
+  const stepsById = new Map<string, ToolStep>();
   let clippedTurns = 0;
   let userMessagesWithImages = 0;
   for (const entry of entries) {
     if (entry.type !== "message") continue;
-    const role = entry.message.role;
-    if (role !== "user" && role !== "assistant") continue;
-    const content = entry.message.content;
+    const message = entry.message;
+    if (message.role === "toolResult") {
+      const step = stepsById.get(message.toolCallId);
+      if (step) step.result = toolResultLine(message.content, message.isError);
+      continue;
+    }
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const role = message.role;
+    const content = message.content;
     if (role === "user" && contentBlocks(content).some((block) => block.type === "image")) userMessagesWithImages++;
     let text = extractText(content);
     if (role === "user") text = collapseSkillInvocation(text);
-    if (text.length === 0) continue;
+    const tools: ToolStep[] = [];
+    if (role === "assistant") {
+      for (const block of contentBlocks(content)) {
+        if (block.type !== "toolCall") continue;
+        const toolCall = block as ToolCallBlock;
+        const step: ToolStep = { call: toolCallLine(toolCall) };
+        tools.push(step);
+        if (typeof toolCall.id === "string") stepsById.set(toolCall.id, step);
+      }
+    }
+    if (text.length === 0 && tools.length === 0) continue;
     if (text.length > MAX_TURN_CHARS) clippedTurns++;
-    turns.push({ role, text: clipTurnText(text) });
+    turns.push({ role, text: clipTurnText(text), tools });
   }
   return { turns, clippedTurns, userMessagesWithImages };
+}
+
+/** Pull user and assistant text out of a session branch, oldest first. */
+export function collectConversation(entries: readonly SessionEntry[]): CollectedTurns {
+  const walked = walkSession(entries);
+  return {
+    turns: walked.turns.filter((turn) => turn.text.length > 0).map(({ role, text }) => ({ role, text })),
+    clippedTurns: walked.clippedTurns,
+    userMessagesWithImages: walked.userMessagesWithImages,
+  };
+}
+
+/** Pull user and agent text, with the tool calls and results of each agent message, out of a session branch. */
+export function collectChatTurns(entries: readonly SessionEntry[]): ChatTurn[] {
+  return walkSession(entries).turns;
 }
 
 export function collectTurns(entries: readonly SessionEntry[]): Turn[] {
@@ -259,4 +348,99 @@ export function prepareConversation(entries: readonly SessionEntry[], maxChars: 
     );
   }
   return { text: rendered.text, messageCount: rendered.keptTurns, warnings };
+}
+
+/** How much of its tool calls a turn keeps. Older turns step down first when the budget runs out. */
+type ToolDetail = "callsAndResults" | "calls" | "none";
+
+function chatTurnLine(turn: ChatTurn, detail: ToolDetail): string {
+  const parts = turn.text.length > 0 ? [turn.text] : [];
+  if (detail !== "none") {
+    for (const step of turn.tools) {
+      parts.push(step.call);
+      if (detail === "callsAndResults" && step.result !== undefined) parts.push(step.result);
+    }
+  }
+  if (parts.length === 0) return "";
+  return `${turn.role === "user" ? "User" : "Agent"}: ${parts.join("\n")}`;
+}
+
+export interface ChatConversation {
+  /** The transcript that goes into the chat prompt. */
+  text: string;
+  /** Tool calls in the branch. */
+  toolCalls: number;
+  /** Tool calls that are in the text without their result. */
+  callsWithoutResult: number;
+  /** Tool calls that are not in the text. */
+  omittedCalls: number;
+  /** What the chat model does not get on top of what the `/recap` model does not get. Empty when nothing more was lost. */
+  warnings: string[];
+}
+
+/**
+ * Render chat turns as a transcript that fits inside `maxChars`.
+ *
+ * Tool results are the largest part and the oldest ones matter least, so they go first, oldest first.
+ * The tool calls go next, in the same order.
+ * When the text alone is still too large, the `/recap` rules cut it,
+ * so the chat model always gets at least what the `/recap` model got.
+ */
+export function renderChatTurns(turns: readonly ChatTurn[], maxChars: number): ChatConversation {
+  const details: ToolDetail[] = turns.map(() => "callsAndResults");
+  const lineCost = (index: number) => {
+    const length = chatTurnLine(turns[index] as ChatTurn, details[index] as ToolDetail).length;
+    // Two newlines join each pair of lines. An empty line is left out with its join.
+    return length > 0 ? length + 2 : 0;
+  };
+  let total = turns.reduce((sum, _, index) => sum + lineCost(index), 0) - 2;
+
+  for (const step of ["calls", "none"] as const) {
+    for (let index = 0; index < turns.length && total > maxChars; index++) {
+      if ((turns[index]?.tools.length ?? 0) === 0) continue;
+      total -= lineCost(index);
+      details[index] = step;
+      total += lineCost(index);
+    }
+  }
+
+  let toolCalls = 0;
+  let callsWithoutResult = 0;
+  let omittedCalls = 0;
+  turns.forEach((turn, index) => {
+    toolCalls += turn.tools.length;
+    if (details[index] === "none") omittedCalls += turn.tools.length;
+    else if (details[index] === "calls") callsWithoutResult += turn.tools.filter((step) => step.result !== undefined).length;
+  });
+
+  const text =
+    total <= maxChars
+      ? turns
+          .map((turn, index) => chatTurnLine(turn, details[index] as ToolDetail))
+          .filter((line) => line.length > 0)
+          .join("\n\n")
+      : renderTurns(
+          turns.filter((turn) => turn.text.length > 0).map(({ role, text }) => ({ role, text })),
+          maxChars,
+        ).text;
+
+  const warnings: string[] = [];
+  if (omittedCalls > 0 || callsWithoutResult > 0) {
+    const larger = `The conversation with its tool calls is larger than maxInputChars (${maxChars}).`;
+    const withoutResult = (count: number) => `${plural(count, "tool call")} without ${count === 1 ? "its result" : "their results"}`;
+    if (omittedCalls === 0) {
+      warnings.push(`${larger} The model gets the ${plural(callsWithoutResult, "oldest tool call")} without ${callsWithoutResult === 1 ? "its result" : "their results"}.`);
+    } else if (omittedCalls === toolCalls) {
+      warnings.push(`${larger} The model gets none of the ${plural(toolCalls, "tool call")}.`);
+    } else {
+      const rest = callsWithoutResult > 0 ? `, and the next ${withoutResult(callsWithoutResult)}` : "";
+      warnings.push(`${larger} The model does not get the ${plural(omittedCalls, "oldest tool call")} of ${toolCalls}${rest}.`);
+    }
+  }
+  return { text, toolCalls, callsWithoutResult, omittedCalls, warnings };
+}
+
+/** The transcript for the chat prompt: the conversation with tool calls, and their results cut short. */
+export function prepareChatConversation(entries: readonly SessionEntry[], maxChars: number): ChatConversation {
+  return renderChatTurns(collectChatTurns(entries), maxChars);
 }

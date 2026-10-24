@@ -3,7 +3,8 @@
 `@lazco/pi-recap` is a pi extension with two commands, `/recap` and `/summary`.
 Each command sends the conversation to a separate model call and shows the result in a popup.
 In RPC mode, the result goes to the client as a `notify` request instead.
-The result never goes into the session.
+In the popup, the user can then ask questions about the session.
+The result, the questions, and the answers never go into the session.
 
 ## Commands
 
@@ -23,9 +24,10 @@ All source sits under `src/`.
 |---|---|
 | `index.ts` | the two commands and the flow from the conversation to the popup or the RPC notification |
 | `config.ts` | reads and checks `recap.json` in the pi agent directory |
-| `conversation.ts` | turns the session branch into the transcript, inside the size limit |
+| `conversation.ts` | turns the session branch into the transcript, and into the chat transcript with the tool calls, inside the size limit |
 | `generate.ts` | the two default prompts, the model choice, and the model call |
-| `popup.ts` | the overlay with the spinner, the text, the scroll, and the copy key |
+| `chat.ts` | the prompt and the history for the questions after the result |
+| `popup.ts` | the overlay with the spinner, the text, the questions and answers, the input line, the scroll, and the copy key |
 | `emphasis.ts` | the fix that lets the popup parse `**` bold and `*` italic next to CJK punctuation |
 
 `scripts/release.sh` cuts a release.
