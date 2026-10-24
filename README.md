@@ -93,6 +93,7 @@ The model leaves out a section that has nothing to say.
 
 After the model finishes the recap or the summary, press `Tab` to open an input line at the bottom of the popup.
 Type a question about the session and press `Enter`.
+A line sets the questions apart from the result, and each question shows after a `›` marker in bold.
 The answer shows under the question, and the question stays at the top of the view while the answer grows.
 You can ask more questions, and the model remembers the earlier questions and answers.
 
@@ -115,8 +116,16 @@ The questions and the answers do not go into the session.
 | `Home` `End` `g` `G` | Go to the top or the bottom |
 | `Tab` | Open the input line for a question, after the result is complete |
 | `c` | Copy the newest answer as Markdown, or the result when there is no answer |
+| Mouse drag | Select text and copy it, in fullscreen mode |
 | `Esc` | Stop the answer that the model writes, or close the popup |
 | `Enter` `q` | Close the popup |
+
+In fullscreen mode (`"tuiMode": "fullscreen"`), pi takes the mouse, so the popup selects text itself.
+Drag over the text to select it.
+When you let go, the popup copies the selected text, without the frame and without the chat behind the popup.
+A click or a key clears the selection.
+A drag past the top or the bottom of the popup scrolls the text.
+In regular mode, your terminal selects text as usual, and the selection can include the popup frame.
 
 While the input line is open, the keys type into it.
 In the input line, `Enter` sends the question and `Esc` goes back to the popup keys.

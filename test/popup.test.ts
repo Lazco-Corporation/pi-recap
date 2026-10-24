@@ -116,7 +116,7 @@ test("a new question stays at the top of the view while its answer grows", () =>
   popup.handleInput("\r");
   popup.showText(Array.from({ length: 30 }, (_, index) => `answer ${index}`).join("\n\n"));
   const body = screen().split("\n").slice(2);
-  assert.ok(body[0]?.includes("pinned question"));
+  assert.ok(body[0]?.includes("› pinned question"));
   popup.dispose();
 });
 
@@ -154,5 +154,40 @@ test("a stop before any text ends the answer, so the next question can go out", 
   type(popup, "second");
   popup.handleInput("\r");
   assert.deepEqual(events, ["ask first", "stop", "ask second"]);
+  popup.dispose();
+});
+
+// A release after a drag copies to the system clipboard, so the test never lets go of a real selection.
+test("a drag selects body text and a click clears it", () => {
+  const { popup, screen } = createPopup();
+  popup.showText("Goal: select me");
+  screen();
+  const mouse = (type: "press" | "drag" | "release", x: number, y: number) =>
+    popup.handleMouse({ type, button: "left", x, y, screenX: x, screenY: y, width: 60, height: 10, shift: false, alt: false, ctrl: false });
+  // The body starts at row 2 and column 2 of the popup.
+  assert.deepEqual(mouse("press", 8, 2), { capture: true });
+  mouse("drag", 13, 2);
+  assert.ok(screen().includes("\x1b[7mselect\x1b[27m"));
+  mouse("press", 8, 2);
+  mouse("release", 8, 2);
+  assert.ok(!screen().includes("\x1b[7m"));
+  popup.dispose();
+});
+
+test("one rule sets the questions apart from the result, not one per question", () => {
+  const { popup, screen } = createPopup();
+  popup.showText("Goal: test");
+  for (const question of ["first", "second"]) {
+    popup.handleInput("\t");
+    type(popup, question);
+    popup.handleInput("\r");
+    popup.showText(`answer to ${question}`);
+  }
+  const lines = screen().split("\n");
+  const rules = lines.map((line, index) => (line.includes("────") && line.startsWith("│") ? index : -1)).filter((index) => index >= 0);
+  assert.equal(rules.length, 1);
+  const goal = lines.findIndex((line) => line.includes("Goal: test"));
+  const first = lines.findIndex((line) => line.includes("› first"));
+  assert.ok(goal < (rules[0] ?? -1) && (rules[0] ?? -1) < first);
   popup.dispose();
 });

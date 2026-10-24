@@ -28,6 +28,7 @@ All source sits under `src/`.
 | `generate.ts` | the two default prompts, the model choice, and the model call |
 | `chat.ts` | the prompt and the history for the questions after the result |
 | `popup.ts` | the overlay with the spinner, the text, the questions and answers, the input line, the scroll, and the copy key |
+| `selection.ts` | the mouse text selection inside the popup, for fullscreen mode |
 | `emphasis.ts` | the fix that lets the popup parse `**` bold and `*` italic next to CJK punctuation |
 
 `scripts/release.sh` cuts a release.

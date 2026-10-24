@@ -3,6 +3,19 @@
 All releases of `@lazco/pi-recap` are in this file.
 The newest release is at the top.
 
+## [Unreleased]
+
+### Added
+
+- In fullscreen mode, drag the mouse over the popup text to select it.
+  When you let go, the popup copies only the selected text, without the frame and without the chat behind the popup.
+
+### Fixed
+
+- A question in the popup now stands apart from the text above it.
+  A line sets the questions apart from the result, and each question shows after a `›` marker in bold.
+  Before, some themes showed the question almost like the answer.
+
 ## [0.4.0] - 2026-10-24
 
 ### Added

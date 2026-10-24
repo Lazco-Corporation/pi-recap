@@ -14,6 +14,7 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import { addEmphasisMarkers, removeEmphasisMarkers } from "./emphasis.ts";
+import { highlightSelection, isEmptySelection, type Selection, type SelectionPoint, selectionText } from "./selection.ts";
 
 /**
  * The overlay for `/recap` and `/summary`: a framed box that shows a spinner, then the text or an error.
@@ -32,6 +33,10 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 const SPINNER_INTERVAL_MS = 80;
 const NOTICE_DURATION_MS = 1_500;
 const ANSWER_LOADING_MESSAGE = "Answering…";
+const QUESTION_MARKER = "› ";
+/** The body starts under the top border and one blank row, after the left border and one space. */
+const BODY_TOP_ROW = 2;
+const BODY_LEFT_COLUMN = 2;
 const STOPPED_MESSAGE = "Stopped.";
 
 type BlockState =
@@ -101,6 +106,12 @@ export class ResultPopup implements Component, Focusable {
   private pinnedBlock: number | undefined;
   /** The body row where each block starts, from the last render. */
   private blockStartRows: number[] = [];
+  /** The body lines and the inner width of the last render, which the mouse selection maps to. */
+  private bodyLines: string[] = [];
+  private innerWidth = 1;
+  private selection: Selection | undefined;
+  /** True from the mouse press until its release. */
+  private selecting = false;
   /** A short message, such as "Copied", that replaces the key hints for a moment. */
   private notice: { text: string; isError: boolean } | undefined;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -122,7 +133,7 @@ export class ResultPopup implements Component, Focusable {
       },
     ];
     this.input = new Input({
-      prompt: this.theme.fg("accent", "› "),
+      prompt: this.theme.fg("accent", QUESTION_MARKER),
       placeholder: "Ask about this session",
       placeholderStyle: (text) => this.theme.fg("dim", text),
     });
@@ -218,6 +229,8 @@ export class ResultPopup implements Component, Focusable {
   }
 
   handleInput(data: string): void {
+    // The selection was copied when the mouse let go, so a key only clears the highlight.
+    if (!this.selecting) this.selection = undefined;
     if (this.inputOpen) {
       this.input.handleInput(data);
       this.tui.requestRender();
@@ -251,10 +264,58 @@ export class ResultPopup implements Component, Focusable {
     }
   }
 
+  /** Mouse events come only in fullscreen mode. In regular mode the terminal selects text itself. */
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult {
-    if (event.type === "wheel") this.scrollByUser(event.wheelDelta ?? 0);
-    // Clicks inside the popup must not fall through to the chat behind it.
+    // Every result is handled, so a click inside the popup never falls through to the chat behind it.
+    if (event.type === "wheel") {
+      this.scrollByUser(event.wheelDelta ?? 0);
+      return { handled: true };
+    }
+    if (event.type === "press" && event.button === "left") {
+      if (!this.isInBody(event)) {
+        this.selection = undefined;
+        return { handled: true };
+      }
+      const point = this.bodyPoint(event);
+      this.selection = { anchor: point, focus: point };
+      this.selecting = true;
+      // The capture keeps the drag coming when the pointer leaves the popup.
+      return { capture: true };
+    }
+    if (event.type === "drag" && this.selecting && this.selection) {
+      // A drag past the top or the bottom of the body scrolls, so a selection can be longer than the view.
+      if (event.y < BODY_TOP_ROW) this.scrollByUser(-1);
+      else if (event.y >= BODY_TOP_ROW + this.viewportHeight) this.scrollByUser(1);
+      this.selection.focus = this.bodyPoint(event);
+      return { handled: true, render: true };
+    }
+    if (event.type === "release" && this.selecting) {
+      this.selecting = false;
+      const selection = this.selection;
+      // A click without a drag selects nothing and clears the old selection.
+      if (!selection || isEmptySelection(selection)) this.selection = undefined;
+      else void this.copy(selectionText(this.bodyLines, selection), "Copied the selection.");
+      return { handled: true, render: true };
+    }
     return { handled: true };
+  }
+
+  private isInBody(event: TuiMouseEvent): boolean {
+    return (
+      event.y >= BODY_TOP_ROW &&
+      event.y < BODY_TOP_ROW + this.viewportHeight &&
+      event.x >= BODY_LEFT_COLUMN &&
+      event.x < BODY_LEFT_COLUMN + this.innerWidth
+    );
+  }
+
+  /** The body cell under the pointer, clamped to the visible body. */
+  private bodyPoint(event: TuiMouseEvent): SelectionPoint {
+    const viewRow = clamp(event.y - BODY_TOP_ROW, 0, this.viewportHeight - 1);
+    return {
+      row: this.scrollTop + viewRow,
+      col: clamp(event.x - BODY_LEFT_COLUMN, 0, this.innerWidth - 1),
+    };
   }
 
   invalidate(): void {
@@ -317,6 +378,8 @@ export class ResultPopup implements Component, Focusable {
     const innerWidth = Math.max(1, width - 4);
 
     const body = this.renderBody(innerWidth);
+    this.bodyLines = body;
+    this.innerWidth = innerWidth;
     const chromeRows = CHROME_ROWS + (this.inputOpen ? 1 : 0);
     const maxBodyRows = Math.max(MIN_BODY_ROWS, Math.floor(this.tui.terminal.rows * HEIGHT_RATIO) - chromeRows);
     this.contentHeight = body.length;
@@ -333,7 +396,8 @@ export class ResultPopup implements Component, Focusable {
     const lines = [this.renderTopBorder(width), blank];
     visible.forEach((line, row) => {
       const onThumb = thumb !== undefined && row >= thumb.start && row < thumb.start + thumb.size;
-      lines.push(frameLine(line, onThumb ? theme.fg("accent", "┃") : border("│")));
+      const shown = this.selection ? highlightSelection(line, this.scrollTop + row, this.selection) : line;
+      lines.push(frameLine(shown, onThumb ? theme.fg("accent", "┃") : border("│")));
     });
     lines.push(blank);
     if (this.inputOpen) lines.push(frameLine(this.input.render(innerWidth)[0] ?? ""));
@@ -346,11 +410,13 @@ export class ResultPopup implements Component, Focusable {
   private renderBody(innerWidth: number): string[] {
     const lines: string[] = [];
     this.blockStartRows = [];
-    for (const block of this.blocks) {
+    this.blocks.forEach((block, index) => {
       if (block.question !== undefined) lines.push("");
+      // One rule marks where the result ends and the questions start. The question marker sets later questions apart.
+      if (index === 1) lines.push(this.theme.fg("borderMuted", "─".repeat(innerWidth)), "");
       this.blockStartRows.push(lines.length);
       lines.push(...this.renderBlock(block, innerWidth));
-    }
+    });
     return lines;
   }
 
@@ -358,12 +424,12 @@ export class ResultPopup implements Component, Focusable {
     const theme = this.theme;
     const lines: string[] = [];
     if (block.question !== undefined) {
-      // The question looks like a user message in the pi chat, so the answer below it reads as the reply.
-      const questionLines = wrapTextWithAnsi(block.question, Math.max(1, innerWidth - 2));
-      for (const line of questionLines) {
-        const padded = ` ${line}${" ".repeat(Math.max(0, innerWidth - 2 - visibleWidth(line)))} `;
-        lines.push(theme.bg("userMessageBg", theme.fg("userMessageText", padded)));
-      }
+      // The question has the same marker as the input line, so it reads as what the user typed.
+      const questionLines = wrapTextWithAnsi(block.question, Math.max(1, innerWidth - QUESTION_MARKER.length));
+      questionLines.forEach((line, index) => {
+        const lead = index === 0 ? theme.fg("accent", QUESTION_MARKER) : " ".repeat(QUESTION_MARKER.length);
+        lines.push(`${lead}${theme.fg("accent", theme.bold(line))}`);
+      });
       lines.push("");
     }
     const warningLines = block.warnings.flatMap((warning) => wrapTextWithAnsi(theme.fg("warning", `! ${warning}`), innerWidth));
@@ -471,10 +537,10 @@ export class ResultPopup implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  private async copy(text: string): Promise<void> {
+  private async copy(text: string, successMessage = "Copied to the clipboard."): Promise<void> {
     try {
       await copyToClipboard(text);
-      this.showNotice("Copied to the clipboard.", false);
+      this.showNotice(successMessage, false);
     } catch (error) {
       this.showNotice(`Copy failed: ${error instanceof Error ? error.message : String(error)}`, true);
     }
