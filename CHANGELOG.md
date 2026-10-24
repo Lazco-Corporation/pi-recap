@@ -3,7 +3,7 @@
 All releases of `@lazco/pi-recap` are in this file.
 The newest release is at the top.
 
-## [Unreleased]
+## [0.4.1] - 2026-10-24
 
 ### Added
 
@@ -104,6 +104,7 @@ This is the first release.
 - The settings file `~/.pi/agent/recap.json` sets the model, the thinking level, the input size, the language, and the prompts.
 - Text after the command adds instructions for one run, for example `/recap focus on git changes`.
 
+[0.4.1]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Lazco-Corporation/pi-recap/compare/v0.2.0...v0.2.1
