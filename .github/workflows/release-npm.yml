@@ -27,8 +27,9 @@
 # This package ships TypeScript source (see `files` in package.json), so there
 # is no build step. `npm run check` and `npm run test` are the gate.
 #
-# The job runs on a GitHub-hosted runner on purpose. Blacksmith is for heavy
-# CPU or a warm disk cache, which an npm publish does not need.
+# The job runs on a GitHub-hosted runner on purpose. This repo is public, Boat
+# refuses the jobs of a public repo, and npm provenance needs a GitHub-hosted
+# runner.
 
 name: Release (npm)
 
