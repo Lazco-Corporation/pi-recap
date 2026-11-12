@@ -67,8 +67,9 @@ It then runs `npm version <bump>`, refuses a version that has no `CHANGELOG.md` 
 If a step after the bump fails, it resets to the starting commit and deletes only the tag that this run created.
 
 A push of a `v*` tag starts `release-npm.yml`.
-The workflow reads the `CHANGELOG.md` section for the version, installs, type-checks, tests, reads `NPM_TOKEN` from Infisical, and publishes with provenance.
-It then creates the GitHub release with the `CHANGELOG.md` section, followed by the notes that GitHub generates.
+The workflow refuses a tag that `main` does not hold.
+It then reads the `CHANGELOG.md` section for the version, installs, type-checks, tests, reads `NPM_TOKEN` from Infisical, and publishes with provenance.
+Last, it creates the GitHub release with the `CHANGELOG.md` section, followed by the notes that GitHub generates.
 A missing section stops the workflow before the publish.
 A version with a `-` goes to the `next` dist-tag. A normal version goes to `latest`.
 

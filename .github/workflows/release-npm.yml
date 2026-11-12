@@ -14,7 +14,8 @@
 # by `scripts/changelog-notes.sh`, followed by the notes that GitHub generates.
 #
 # ── SHARED ACTIONS (ci-actions) ────────────────────────────────────────────
-# infisical-fetch and npm-publish come from Lazco-Corporation/ci-actions@v1.
+# require-tag-on-main, infisical-fetch, and npm-publish come from
+# Lazco-Corporation/ci-actions@v1.
 # Log and output format is defined there.
 #
 # ── CONFIG SOURCED FROM INFISICAL ──────────────────────────────────────────
@@ -48,6 +49,16 @@ jobs:
       contents: write # the last step creates the GitHub release
       id-token: write # npm provenance + Infisical OIDC
     steps:
+      # A tag can name a commit no branch holds, and a tag-triggered run uses
+      # the workflow file at the tagged ref. Refuse before anything is published.
+      - name: Refuse a tag that is not on main
+        uses: Lazco-Corporation/ci-actions/require-tag-on-main@v1
+        with:
+          repository: ${{ github.repository }}
+          sha: ${{ github.sha }}
+          ref-name: ${{ github.ref_name }}
+          token: ${{ github.token }}
+
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
