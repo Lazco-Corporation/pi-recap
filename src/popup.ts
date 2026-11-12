@@ -410,13 +410,12 @@ export class ResultPopup implements Component, Focusable {
   private renderBody(innerWidth: number): string[] {
     const lines: string[] = [];
     this.blockStartRows = [];
-    this.blocks.forEach((block, index) => {
-      if (block.question !== undefined) lines.push("");
-      // One rule marks where the result ends and the questions start. The question marker sets later questions apart.
-      if (index === 1) lines.push(this.theme.fg("borderMuted", "─".repeat(innerWidth)), "");
+    for (const block of this.blocks) {
+      // A rule above each question keeps every question and its answer apart from the block before it.
+      if (block.question !== undefined) lines.push("", this.theme.fg("borderMuted", "─".repeat(innerWidth)), "");
       this.blockStartRows.push(lines.length);
       lines.push(...this.renderBlock(block, innerWidth));
-    });
+    }
     return lines;
   }
 

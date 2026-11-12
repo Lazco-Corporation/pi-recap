@@ -174,7 +174,7 @@ test("a drag selects body text and a click clears it", () => {
   popup.dispose();
 });
 
-test("one rule sets the questions apart from the result, not one per question", () => {
+test("a rule sets each question apart from the block before it", () => {
   const { popup, screen } = createPopup();
   popup.showText("Goal: test");
   for (const question of ["first", "second"]) {
@@ -185,9 +185,12 @@ test("one rule sets the questions apart from the result, not one per question", 
   }
   const lines = screen().split("\n");
   const rules = lines.map((line, index) => (line.includes("────") && line.startsWith("│") ? index : -1)).filter((index) => index >= 0);
-  assert.equal(rules.length, 1);
+  assert.equal(rules.length, 2);
   const goal = lines.findIndex((line) => line.includes("Goal: test"));
   const first = lines.findIndex((line) => line.includes("› first"));
+  const firstAnswer = lines.findIndex((line) => line.includes("answer to first"));
+  const second = lines.findIndex((line) => line.includes("› second"));
   assert.ok(goal < (rules[0] ?? -1) && (rules[0] ?? -1) < first);
+  assert.ok(firstAnswer < (rules[1] ?? -1) && (rules[1] ?? -1) < second);
   popup.dispose();
 });
