@@ -1,0 +1,19 @@
+package.json
+  s_4b0ff75aec5cc3::t_9e0e45ef861e72 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "21dc5b16ff20e17642b38fecc7f299ad4986c09f",
+  "prompts": {},
+  "sessions": {
+    "s_4b0ff75aec5cc3": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1ced5-fe41-715f-8f90-6c36fb441e67",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
