@@ -1,0 +1,23 @@
+src/popup.ts
+  s_4b0ff75aec5cc3::t_cb2843086c1f32 413
+  s_4b0ff75aec5cc3::t_7424fe18f292d7 414-415
+  s_4b0ff75aec5cc3::t_9700c0a046d660 418
+test/popup.test.ts
+  s_4b0ff75aec5cc3::t_f521e5f6022bd9 177,188,191-192,194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "88105d2d853b2fe43c354503fb44e1a18be20ce9",
+  "prompts": {},
+  "sessions": {
+    "s_4b0ff75aec5cc3": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1ced5-fe41-715f-8f90-6c36fb441e67",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "OnCloud <onc125252@gmail.com>"
+    }
+  }
+}
